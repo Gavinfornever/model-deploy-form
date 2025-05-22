@@ -104,104 +104,6 @@ const ClusterList = () => {
     fetchClusters();
   }, []);
 
-  // 渲染树形结构的节点标题
-  const renderTreeNodeTitle = (node) => (
-    <Space>
-      <DesktopOutlined />
-      <span>{node.name}</span>
-      <Tag color={node.status === 'online' ? 'green' : 'red'}>
-        {node.status === 'online' ? '在线' : '离线'}
-      </Tag>
-      {node.gpus && (
-        <Tag color="blue">
-          GPU: {node.gpus.length}
-        </Tag>
-      )}
-    </Space>
-  );
-
-  // 集群列表表格列定义
-  const columns = [
-    {
-      title: '集群名称',
-      dataIndex: 'name',
-      key: 'name',
-      render: (text) => <strong>{text}</strong>,
-    },
-    {
-      title: '类型',
-      dataIndex: 'adapter_type',
-      key: 'adapter_type',
-      render: (type) => {
-        let color = 'blue';
-        let text = type;
-        
-        if (type === 'apple') {
-          color = 'geekblue';
-          text = 'Apple Silicon';
-        } else if (type === 'nvidia') {
-          color = 'green';
-          text = 'NVIDIA';
-        }
-        
-        return <Tag color={color}>{text}</Tag>;
-      },
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status) => {
-        if (status === 'online') {
-          return <Badge status="success" text="在线" />;
-        } else if (status === 'offline') {
-          return <Badge status="error" text="离线" />;
-        } else {
-          return <Badge status="processing" text="连接中" />;
-        }
-      },
-    },
-    {
-      title: '节点数',
-      dataIndex: 'nodes_count',
-      key: 'nodes_count',
-    },
-    {
-      title: 'GPU数',
-      dataIndex: 'gpus_count',
-      key: 'gpus_count',
-    },
-    {
-      title: '操作',
-      key: 'action',
-      render: (_, record) => (
-        <Space size="small">
-          <Tooltip title="查看详情">
-            <Button 
-              type="text" 
-              icon={<InfoCircleOutlined />} 
-              onClick={() => fetchClusterDetail(record.id)}
-            />
-          </Tooltip>
-          <Tooltip title="删除集群">
-            <Button 
-              type="text" 
-              danger 
-              icon={<DeleteOutlined />} 
-              onClick={() => {
-                Modal.confirm({
-                  title: '确认删除',
-                  content: `确定要删除集群 "${record.name}" 吗？此操作不可恢复。`,
-                  onOk: () => deleteCluster(record.id)
-                });
-              }}
-            />
-          </Tooltip>
-        </Space>
-      ),
-    },
-  ];
-
   // 格式化内存大小显示
   const formatMemory = (memoryMB) => {
     if (!memoryMB) return '未知';
@@ -233,238 +135,21 @@ const ClusterList = () => {
     return name;
   };
 
-  // 渲染集群详情模态框
-  const renderDetailModal = () => {
-    if (!clusterDetail) return null;
-
-    const nodes = clusterDetail.nodes || [];
-    const totalGpus = nodes.reduce((sum, node) => sum + (node.gpus ? node.gpus.length : 0), 0);
-    const totalCPUCores = nodes.reduce((acc, node) => {
-      return acc + (node.cpu_info?.cores || 0);
-    }, 0);
-    const totalMemory = nodes.reduce((acc, node) => {
-      return acc + (node.memory_total || 0);
-    }, 0);
-
-    return (
-      <Modal
-        title={`集群详情: ${clusterDetail.name}`}
-        visible={detailModalVisible}
-        onCancel={() => setDetailModalVisible(false)}
-        width={800}
-        footer={[
-          <Button key="close" onClick={() => setDetailModalVisible(false)}>
-            关闭
-          </Button>
-        ]}
-      >
-        <Spin spinning={detailLoading}>
-          {/* 集群概览 */}
-          <Card title="集群资源概览" bordered={false} size="small">
-            <Row gutter={16}>
-              <Col span={4}>
-                <Statistic 
-                  title="节点数量" 
-                  value={nodes.length} 
-                  prefix={<DesktopOutlined />} 
-                  style={{ fontSize: '0.9em' }}
-                />
-              </Col>
-              <Col span={4}>
-                <Statistic 
-                  title="GPU总数" 
-                  value={totalGpus} 
-                  prefix={<RocketOutlined />} 
-                  style={{ fontSize: '0.9em' }}
-                />
-              </Col>
-              <Col span={8}>
-                <Statistic 
-                  title="CPU核心总数" 
-                  value={totalCPUCores || '未知'} 
-                  prefix={<BarChartOutlined />} 
-                  style={{ fontSize: '0.9em' }}
-                />
-              </Col>
-              <Col span={8}>
-                <Statistic 
-                  title="内存总量" 
-                  value={formatMemory(totalMemory)} 
-                  prefix={<DatabaseOutlined />} 
-                  style={{ fontSize: '0.9em' }}
-                />
-              </Col>
-            </Row>
-            <Row style={{ marginTop: 16 }}>
-              <Col span={24}>
-                <Statistic 
-                  title="集群状态" 
-                  value={clusterDetail.status === 'online' ? '在线' : '离线'} 
-                  valueStyle={{ color: clusterDetail.status === 'online' ? '#52c41a' : '#ff4d4f' }}
-                  prefix={clusterDetail.status === 'online' ? <CheckCircleOutlined /> : <CloseCircleOutlined />}
-                />
-              </Col>
-            </Row>
-          </Card>
-
-          <Divider />
-
-          {/* 集群信息 */}
-          <Descriptions title="集群信息" bordered>
-            <Descriptions.Item label="集群ID" span={3}>{clusterDetail.id}</Descriptions.Item>
-            <Descriptions.Item label="适配器类型" span={3}>
-              {clusterDetail.adapter_type === 'apple' ? 'Apple Silicon' : 'NVIDIA'}
-            </Descriptions.Item>
-          </Descriptions>
-
-          <Divider />
-
-          {/* 节点列表 */}
-          <Title level={4} style={{ marginTop: 16 }}>节点资源详情</Title>
-          {nodes.length === 0 ? (
-            <Text type="secondary">暂无节点信息</Text>
-          ) : (
-            nodes.map((node, index) => (
-              <Card 
-                key={node.id} 
-                title={
-                  <Space>
-                    <DesktopOutlined />
-                    <span>节点: {node.name}</span>
-                    <Tag color={node.status === 'online' ? 'green' : 'red'}>
-                      {node.status === 'online' ? '在线' : '离线'}
-                    </Tag>
-                  </Space>
-                }
-                style={{ marginBottom: 16 }}
-                type="inner"
-              >
-                <Tabs defaultActiveKey="overview">
-                  <Tabs.TabPane tab="基本信息" key="overview">
-                    <Row gutter={16}>
-                      <Col span={12}>
-                        <Descriptions bordered size="small" column={1} layout="vertical">
-                          <Descriptions.Item label="节点ID">{node.id}</Descriptions.Item>
-                          <Descriptions.Item label="IP地址">{node.ip}</Descriptions.Item>
-                          <Descriptions.Item label="主机名">
-                            {node.metadata?.hostname || '未知'}
-                          </Descriptions.Item>
-                          <Descriptions.Item label="操作系统">
-                            {node.metadata?.os} {node.metadata?.os_version}
-                          </Descriptions.Item>
-                        </Descriptions>
-                      </Col>
-                      <Col span={12}>
-                        <Card title="CPU信息" size="small" bordered={false}>
-                          {node.cpu_info ? (
-                            <>
-                              <Descriptions bordered size="small" column={1}>
-                                <Descriptions.Item label="CPU型号">
-                                  {node.cpu_info.model || '未知'}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="CPU核心数">
-                                  {node.cpu_info.cores || '未知'}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="CPU架构">
-                                  {node.cpu_info.architecture || '未知'}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="CPU厂商">
-                                  {node.cpu_info.vendor || '未知'}
-                                </Descriptions.Item>
-                              </Descriptions>
-                            </>
-                          ) : (
-                            <Text type="secondary">暂无CPU信息</Text>
-                          )}
-                        </Card>
-                      </Col>
-                    </Row>
-                    
-                    {/* 内存信息 */}
-                    {(node.memory_total || node.memory_available) && (
-                      <Card title="内存信息" size="small" style={{ marginTop: 16 }} bordered={false}>
-                        <Row gutter={16} align="middle">
-                          <Col span={6}>
-                            <Statistic 
-                              title="总内存" 
-                              value={formatMemory(node.memory_total)} 
-                              prefix={<DatabaseOutlined />}
-                            />
-                          </Col>
-                          <Col span={6}>
-                            <Statistic 
-                              title="可用内存" 
-                              value={formatMemory(node.memory_available)} 
-                            />
-                          </Col>
-                          <Col span={12}>
-                            <div style={{ marginBottom: 4 }}>内存使用率</div>
-                            <Progress 
-                              percent={calculateMemoryUsage(node.memory_total, node.memory_available)} 
-                              status={calculateMemoryUsage(node.memory_total, node.memory_available) > 80 ? "exception" : "normal"}
-                            />
-                          </Col>
-                        </Row>
-                      </Card>
-                    )}
-                  </Tabs.TabPane>
-                  
-                  <Tabs.TabPane tab="GPU资源" key="gpu">
-                    {node.gpus && node.gpus.length > 0 ? (
-                      <Table
-                        dataSource={node.gpus}
-                        rowKey="id"
-                        pagination={false}
-                        columns={[
-                          {
-                            title: 'GPU名称',
-                            dataIndex: 'name',
-                            key: 'name',
-                            render: (text) => <strong>{text}</strong>
-                          },
-                          {
-                            title: '类型',
-                            dataIndex: 'gpu_type',
-                            key: 'gpu_type',
-                            render: (type) => (
-                              <Tag color={type === 'apple' ? 'geekblue' : 'green'}>
-                                {type}
-                              </Tag>
-                            )
-                          },
-                          {
-                            title: '显存',
-                            dataIndex: 'memory_total',
-                            key: 'memory_total',
-                            render: (memory) => formatMemory(memory)
-                          },
-                          {
-                            title: '计算能力',
-                            dataIndex: 'compute_capability',
-                            key: 'compute_capability',
-                            render: (text) => text || '未知'
-                          },
-                          {
-                            title: '驱动版本',
-                            key: 'driver_version',
-                            render: (text, record) => record.extra_info?.driver_version || '未知'
-                          }
-                        ]}
-                      />
-                    ) : (
-                      <Empty description="该节点没有GPU资源" />
-                    )}
-                  </Tabs.TabPane>
-                </Tabs>
-
-
-              </Card>
-            ))
-          )}
-        </Spin>
-      </Modal>
-    );
-  };
+  // 渲染树形结构的节点标题
+  const renderTreeNodeTitle = (node) => (
+    <Space>
+      <DesktopOutlined />
+      <span>{node.name}</span>
+      <Tag color={node.status === 'online' ? 'green' : 'red'}>
+        {node.status === 'online' ? '在线' : '离线'}
+      </Tag>
+      {node.gpus && (
+        <Tag color="blue">
+          GPU: {node.gpus.length}
+        </Tag>
+      )}
+    </Space>
+  );
 
   // 构建层次树结构数据
   const buildTreeData = () => {
@@ -513,6 +198,154 @@ const ClusterList = () => {
       selectable: false,
       cluster: cluster
     }));
+  };
+
+  // 渲染集群详情模态框
+  const renderDetailModal = () => {
+    if (!clusterDetail) return null;
+
+    const nodes = clusterDetail.nodes || [];
+    const totalGpus = nodes.reduce((sum, node) => sum + (node.gpus ? node.gpus.length : 0), 0);
+
+    return (
+      <Modal
+        title={`集群详情: ${clusterDetail.name}`}
+        visible={detailModalVisible}
+        onCancel={() => setDetailModalVisible(false)}
+        width={800}
+        footer={[
+          <Button key="close" onClick={() => setDetailModalVisible(false)}>
+            关闭
+          </Button>
+        ]}
+      >
+        <Spin spinning={detailLoading}>
+          {/* 集群概览 */}
+          <Row gutter={16}>
+            <Col span={8}>
+              <Statistic 
+                title="节点数量" 
+                value={nodes.length} 
+                prefix={<DesktopOutlined />} 
+              />
+            </Col>
+            <Col span={8}>
+              <Statistic 
+                title="GPU总数" 
+                value={totalGpus} 
+                prefix={<CloudServerOutlined />} 
+              />
+            </Col>
+            <Col span={8}>
+              <Statistic 
+                title="状态" 
+                value={clusterDetail.status === 'online' ? '在线' : '离线'} 
+                valueStyle={{ color: clusterDetail.status === 'online' ? '#52c41a' : '#ff4d4f' }}
+                prefix={clusterDetail.status === 'online' ? <CheckCircleOutlined /> : <CloseCircleOutlined />}
+              />
+            </Col>
+          </Row>
+
+          <Divider />
+
+          {/* 集群信息 */}
+          <Descriptions title="集群信息" bordered>
+            <Descriptions.Item label="集群ID" span={3}>{clusterDetail.id}</Descriptions.Item>
+            <Descriptions.Item label="适配器类型" span={3}>
+              {clusterDetail.adapter_type === 'apple' ? 'Apple Silicon' : 'NVIDIA'}
+            </Descriptions.Item>
+          </Descriptions>
+
+          <Divider />
+
+          {/* 节点列表 */}
+          <Title level={4}>节点列表</Title>
+          {nodes.length === 0 ? (
+            <Text type="secondary">暂无节点信息</Text>
+          ) : (
+            nodes.map((node, index) => (
+              <Card 
+                key={node.id} 
+                title={`节点: ${node.name}`}
+                style={{ marginBottom: 16 }}
+                type="inner"
+                extra={
+                  <Tag color={node.status === 'online' ? 'green' : 'red'}>
+                    {node.status === 'online' ? '在线' : '离线'}
+                  </Tag>
+                }
+              >
+                <Descriptions size="small" column={2}>
+                  <Descriptions.Item label="节点ID">{node.id}</Descriptions.Item>
+                  <Descriptions.Item label="IP地址">{node.ip}</Descriptions.Item>
+                  {node.metadata && (
+                    <>
+                      <Descriptions.Item label="操作系统">
+                        {node.metadata.os} {node.metadata.os_version}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="主机名">
+                        {node.metadata.hostname}
+                      </Descriptions.Item>
+                      {node.metadata.cpu_cores && (
+                        <Descriptions.Item label="CPU核心数">
+                          {node.metadata.cpu_cores}
+                        </Descriptions.Item>
+                      )}
+                      {node.metadata.cpu_model && (
+                        <Descriptions.Item label="CPU型号">
+                          {node.metadata.cpu_model}
+                        </Descriptions.Item>
+                      )}
+                      {node.metadata.memory_total && (
+                        <Descriptions.Item label="内存大小">
+                          {(node.metadata.memory_total / 1024).toFixed(2)} GB
+                        </Descriptions.Item>
+                      )}
+                    </>
+                  )}
+                </Descriptions>
+
+                {/* GPU列表 */}
+                {node.gpus && node.gpus.length > 0 && (
+                  <>
+                    <Divider orientation="left">GPU ({node.gpus.length})</Divider>
+                    <Table
+                      dataSource={node.gpus}
+                      rowKey="id"
+                      size="small"
+                      pagination={false}
+                      columns={[
+                        {
+                          title: 'GPU名称',
+                          dataIndex: 'name',
+                          key: 'name',
+                        },
+                        {
+                          title: '类型',
+                          dataIndex: 'gpu_type',
+                          key: 'gpu_type',
+                          render: (type) => (
+                            <Tag color={type === 'apple' ? 'geekblue' : 'green'}>
+                              {type}
+                            </Tag>
+                          )
+                        },
+                        {
+                          title: '显存',
+                          dataIndex: 'memory_total',
+                          key: 'memory_total',
+                          render: (memory) => `${(memory / 1024).toFixed(2)} GB`
+                        }
+                      ]}
+                    />
+                  </>
+                )}
+              </Card>
+            ))
+          )}
+        </Spin>
+      </Modal>
+    );
   };
 
   return (

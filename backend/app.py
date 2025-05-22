@@ -596,16 +596,16 @@ def delete_model_config(config_id):
     return jsonify({'status': 'error', 'message': '配置不存在'}), 404
 
 # 获取集群列表
-@app.route('/api/clusters', methods=['GET'])
-def get_clusters():
-    clusters = list(set(config['cluster'] for config in model_configs))
-    return jsonify({'status': 'success', 'data': clusters}), 200
+# @app.route('/api/clusters', methods=['GET'])
+# def get_clusters():
+#     clusters = list(set(config['cluster'] for config in model_configs))
+#     return jsonify({'status': 'success', 'data': clusters}), 200
 
 # 获取节点列表
-@app.route('/api/nodes', methods=['GET'])
-def get_nodes():
-    nodes = list(set(config['node'] for config in model_configs))
-    return jsonify({'status': 'success', 'data': nodes}), 200
+# @app.route('/api/nodes', methods=['GET'])
+# def get_nodes():
+#     nodes = list(set(config['node'] for config in model_configs))
+#     return jsonify({'status': 'success', 'data': nodes}), 200
 
 # API使用量和Token使用量数据
 usage_data = {

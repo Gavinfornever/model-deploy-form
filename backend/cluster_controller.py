@@ -85,85 +85,26 @@ def discover_local_resources(adapter_type: str) -> List[NodeInfo]:
         node.metadata["os_version"] = platform.version()
         node.metadata["hostname"] = platform.node()
         
-        # 获取CPU和内存信息
-        try:
-            if platform.system() == "Darwin":  # macOS
-                # 获取CPU信息
+        # 获取CPU信息
+        if platform.system() == "Darwin":  # macOS
+            try:
+                # 获取CPU核心数
                 cmd = "sysctl -n hw.ncpu"
-                cpu_cores = int(subprocess.check_output(cmd, shell=True).decode().strip())
+                cpu_cores = subprocess.check_output(cmd, shell=True).decode().strip()
+                node.metadata["cpu_cores"] = cpu_cores
                 
+                # 获取CPU型号
                 cmd = "sysctl -n machdep.cpu.brand_string"
                 cpu_model = subprocess.check_output(cmd, shell=True).decode().strip()
-                
-                # 获取CPU架构
-                cmd = "uname -m"
-                cpu_arch = subprocess.check_output(cmd, shell=True).decode().strip()
-                
-                # 获取CPU厂商
-                cmd = "sysctl -n machdep.cpu.vendor"
-                cpu_vendor = subprocess.check_output(cmd, shell=True).decode().strip()
-                
-                # 创建CPU信息字典
-                node.cpu_info = {
-                    "model": cpu_model,
-                    "cores": cpu_cores,
-                    "architecture": cpu_arch,
-                    "vendor": cpu_vendor
-                }
+                node.metadata["cpu_model"] = cpu_model
                 
                 # 获取内存大小
                 cmd = "sysctl -n hw.memsize"
-                memory_total = int(subprocess.check_output(cmd, shell=True).decode().strip())
-                node.memory_total = memory_total // (1024 * 1024)  # 转换为MB
+                memory = int(subprocess.check_output(cmd, shell=True).decode().strip())
+                node.metadata["memory_total"] = memory // (1024 * 1024)  # 转换为MB
                 
-                # 获取可用内存
-                cmd = "vm_stat | grep 'Pages free' | awk '{print $3}' | sed 's/\\.//'" 
-                pages_free = int(subprocess.check_output(cmd, shell=True).decode().strip())
-                page_size = int(subprocess.check_output("sysctl -n hw.pagesize", shell=True).decode().strip())
-                memory_available = (pages_free * page_size) // (1024 * 1024)  # 转换为MB
-                node.memory_available = memory_available
-                
-            elif platform.system() == "Linux":  # Linux
-                # 获取CPU信息
-                cmd = "nproc"
-                cpu_cores = int(subprocess.check_output(cmd, shell=True).decode().strip())
-                
-                cmd = "cat /proc/cpuinfo | grep 'model name' | head -n 1 | cut -d ':' -f 2"
-                cpu_model = subprocess.check_output(cmd, shell=True).decode().strip()
-                
-                # 获取CPU架构
-                cmd = "uname -m"
-                cpu_arch = subprocess.check_output(cmd, shell=True).decode().strip()
-                
-                # 获取CPU厂商
-                cmd = "cat /proc/cpuinfo | grep 'vendor_id' | head -n 1 | cut -d ':' -f 2"
-                cpu_vendor = subprocess.check_output(cmd, shell=True).decode().strip()
-                
-                # 创建CPU信息字典
-                node.cpu_info = {
-                    "model": cpu_model,
-                    "cores": cpu_cores,
-                    "architecture": cpu_arch,
-                    "vendor": cpu_vendor
-                }
-                
-                # 获取内存信息
-                cmd = "free -m | grep Mem | awk '{print $2}'"
-                memory_total = int(subprocess.check_output(cmd, shell=True).decode().strip())
-                node.memory_total = memory_total
-                
-                cmd = "free -m | grep Mem | awk '{print $7}'"
-                memory_available = int(subprocess.check_output(cmd, shell=True).decode().strip())
-                node.memory_available = memory_available
-            
-            # 同时保留在metadata中，以保持兼容性
-            node.metadata["cpu_model"] = node.cpu_info["model"]
-            node.metadata["cpu_cores"] = node.cpu_info["cores"]
-            node.metadata["memory_total"] = node.memory_total
-            node.metadata["memory_available"] = node.memory_available
-                
-        except Exception as e:
-            logger.error(f"Error getting system info: {e}")
+            except Exception as e:
+                logger.error(f"Error getting system info: {e}")
         
         logger.info(f"Discovered node: {node.name} with {len(node.gpus)} GPUs")
         
@@ -208,16 +149,6 @@ def node_to_dict(node: NodeInfo) -> Dict[str, Any]:
         "metadata": node.metadata,
         "gpus": []
     }
-    
-    # 添加内存信息
-    if hasattr(node, 'memory_total') and node.memory_total > 0:
-        node_dict["memory_total"] = node.memory_total
-    if hasattr(node, 'memory_available') and node.memory_available > 0:
-        node_dict["memory_available"] = node.memory_available
-    
-    # 添加CPU信息
-    if hasattr(node, 'cpu_info') and node.cpu_info:
-        node_dict["cpu_info"] = node.cpu_info
     
     # 添加GPU信息
     for gpu in node.gpus:

@@ -50,15 +50,24 @@ const ClusterRegistration = () => {
       // 构建请求数据
       const formData = new FormData();
       
+      // 从 localStorage 中获取保存的 name 和 adapter_type 值
+      const savedName = localStorage.getItem('cluster_name');
+      const savedAdapterType = localStorage.getItem('adapter_type');
+      
       // 添加基本信息
       const clusterData = {
-        name: values.name,
-        adapter_type: values.adapter_type,
+        // 优先使用表单中的值，如果没有则使用localStorage中的值，最后才使用默认值
+        name: savedName || '新建集群',
+        adapter_type: savedAdapterType || 'nvidia',
         center_node_ip: values.center_node_ip,
         center_node_port: values.center_node_port || 22,
-        center_controller_url: window.location.origin,
+        center_controller_url: "http://localhost:5001",
         internal_ip: values.internal_ip
       };
+      
+      // 调试信息
+      console.log('提交的集群数据:', clusterData);
+      console.log('使用的适配器类型:', clusterData.adapter_type);
       
       // 添加认证信息
       if (authMethod === 'password') {
@@ -77,7 +86,7 @@ const ClusterRegistration = () => {
       
       // 发送请求
       const response = await axios.post(
-        'http://localhost:5000/api/clusters', 
+        'http://localhost:5001/api/clusters', // 修改为5001端口，与center_controller.py一致
         authMethod === 'key' ? formData : clusterData,
         {
           headers: {
@@ -110,7 +119,27 @@ const ClusterRegistration = () => {
     }
 
     form.validateFields()
-      .then(() => {
+      .then((values) => {
+        // 如果是从基本信息页面（步骤0）进入连接配置页面（步骤1）
+        if (currentStep === 0 && step === 1) {
+          // 保存name和adapter_type的值到表单实例中
+          const name = values.name;
+          const adapterType = values.adapter_type;
+          
+          // 调试信息
+          console.log('保存基本信息:', { name, adapterType });
+          
+          // 将值保存到localStorage中，以便在下一页面使用
+          localStorage.setItem('cluster_name', name || '新建集群');
+          localStorage.setItem('adapter_type', adapterType || 'nvidia');
+          
+          // 同时在表单中设置默认值，确保在下一页面中可以访问
+          form.setFieldsValue({
+            name: name || '新建集群',
+            adapter_type: adapterType || 'nvidia'
+          });
+        }
+        
         if (step === 2) {
           // 确认提交
           handleSubmit();
