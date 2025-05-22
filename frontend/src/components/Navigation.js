@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Layout, Menu, Row, Col } from 'antd';
-import { UserOutlined, DeploymentUnitOutlined, AppstoreOutlined, DashboardOutlined, SettingOutlined, CommentOutlined, CloudOutlined, KeyOutlined } from '@ant-design/icons';
+import { 
+  UserOutlined, DeploymentUnitOutlined, AppstoreOutlined, 
+  DashboardOutlined, SettingOutlined, CommentOutlined, 
+  CloudOutlined, KeyOutlined, ClusterOutlined 
+} from '@ant-design/icons';
 import UserAvatar from './UserAvatar';
 
 const { Header } = Layout;
@@ -80,6 +84,11 @@ const Navigation = () => {
             key: '/api-keys',
             icon: <KeyOutlined />,
             label: <Link to="/api-keys">API密钥管理</Link>,
+          },
+          {
+            key: '/clusters',
+            icon: <ClusterOutlined />,
+            label: <Link to="/clusters">集群管理</Link>,
           }
         ]}
       />

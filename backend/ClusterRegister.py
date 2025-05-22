@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 GPU集群资源管理系统
@@ -51,6 +50,10 @@ class NodeInfo:
     status: str = "unknown"  # unknown, online, offline, busy
     last_heartbeat: float = 0.0
     metadata: Dict[str, Any] = field(default_factory=dict)
+    # 新增字段
+    memory_total: int = 0  # 总内存，单位MB
+    memory_available: int = 0  # 可用内存，单位MB
+    cpu_info: Dict[str, Any] = field(default_factory=dict)  # CPU信息，包含核心数、型号等
 
 @dataclass
 class ClusterInfo:
@@ -124,6 +127,71 @@ class NvidiaGPUAdapter(GPUAdapter):
                 port=node_config.get("port", 22),
                 status="unknown"
             )
+            
+            # 获取节点的内存和CPU信息
+            try:
+                import paramiko
+                import re
+                
+                # 创建SSH客户端
+                ssh = paramiko.SSHClient()
+                ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                
+                # 尝试从节点元数据中获取凭据
+                username = node_config.get("metadata", {}).get("username", "root")
+                password = node_config.get("metadata", {}).get("password", "")
+                
+                try:
+                    # 连接到远程服务器
+                    ssh.connect(node.ip, node.port, username, password)
+                    
+                    # 获取内存信息
+                    stdin, stdout, stderr = ssh.exec_command("free -m | grep Mem")
+                    mem_output = stdout.read().decode("utf-8")
+                    mem_parts = mem_output.split()
+                    if len(mem_parts) >= 7:
+                        node.memory_total = int(mem_parts[1])
+                        node.memory_available = int(mem_parts[6])
+                    
+                    # 获取CPU信息
+                    stdin, stdout, stderr = ssh.exec_command("lscpu")
+                    cpu_output = stdout.read().decode("utf-8")
+                    
+                    # 解析CPU信息
+                    cpu_info = {}
+                    for line in cpu_output.split("\n"):
+                        if ":" in line:
+                            key, value = line.split(":", 1)
+                            cpu_info[key.strip()] = value.strip()
+                    
+                    # 提取关键信息
+                    node.cpu_info = {
+                        "model": cpu_info.get("Model name", "Unknown"),
+                        "cores": int(cpu_info.get("CPU(s)", 0)),
+                        "architecture": cpu_info.get("Architecture", "Unknown"),
+                        "vendor": cpu_info.get("Vendor ID", "Unknown")
+                    }
+                    
+                    # 获取主机名和操作系统信息
+                    stdin, stdout, stderr = ssh.exec_command("hostname")
+                    hostname = stdout.read().decode("utf-8").strip()
+                    
+                    stdin, stdout, stderr = ssh.exec_command("uname -a")
+                    os_info = stdout.read().decode("utf-8").strip()
+                    
+                    # 更新节点元数据
+                    node.metadata.update({
+                        "hostname": hostname,
+                        "os": os_info.split()[0],
+                        "os_version": " ".join(os_info.split()[2:])
+                    })
+                    
+                finally:
+                    ssh.close()
+                    
+            except Exception as e:
+                logger.error(f"Error getting node system info: {e}")
+            
             nodes.append(node)
             
         return nodes
@@ -132,32 +200,84 @@ class NvidiaGPUAdapter(GPUAdapter):
         """获取NVIDIA GPU信息"""
         logger.info(f"Getting GPU info for NVIDIA node: {node.name}")
         
-        # 在实际实现中，这里会通过SSH或API调用nvidia-smi
-        # 为演示目的，我们模拟一些GPU
+        # 使用SSH连接到远程服务器并获取GPU信息
         gpus = []
         
-        # 模拟调用nvidia-smi的结果
         try:
-            # 实际实现会执行: ssh {node.ip} nvidia-smi --query-gpu=name,memory.total,uuid --format=csv,noheader
-            # 这里模拟返回结果
-            gpu_count = node.metadata.get("gpu_count", 4)  # 默认4个GPU
+            import paramiko
+            import re
             
-            for i in range(gpu_count):
-                gpu = GPUInfo(
-                    id=f"{node.id}-gpu-{i}",
-                    name=f"NVIDIA RTX A6000",
-                    memory_total=49152,  # 48GB
-                    gpu_type=GPUType.NVIDIA,
-                    compute_capability="8.6",
-                    extra_info={
-                        "driver_version": "535.129.03",
-                        "cuda_version": "12.2"
-                    }
-                )
-                gpus.append(gpu)
+            # 创建SSH客户端
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            
+            # 如果节点是本地节点，直接使用本地命令
+            if node.ip in ["127.0.0.1", "localhost"] and os.path.exists("/usr/bin/nvidia-smi"):
+                import subprocess
+                output = subprocess.check_output(["nvidia-smi", "--query-gpu=index,name,memory.total,driver_version", "--format=csv,noheader"]).decode("utf-8")
+                lines = output.strip().split("\n")
+            else:
+                # 连接到远程服务器
+                # 注意：在实际生产环境中，应该使用密钥认证而不是密码
+                try:
+                    # 尝试从节点元数据中获取凭据
+                    username = node.metadata.get("username", "root")
+                    password = node.metadata.get("password", "")
+                    ssh.connect(node.ip, node.port, username, password)
+                    
+                    # 执行nvidia-smi命令获取GPU信息
+                    stdin, stdout, stderr = ssh.exec_command("nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv,noheader")
+                    output = stdout.read().decode("utf-8")
+                    lines = output.strip().split("\n")
+                finally:
+                    ssh.close()
+            
+            # 解析输出并创建GPU对象
+            for line in lines:
+                if not line.strip():
+                    continue
+                    
+                parts = line.split(", ")
+                if len(parts) >= 3:
+                    index = parts[0].strip()
+                    name = parts[1].strip()
+                    memory = parts[2].strip()
+                    driver_version = parts[3].strip() if len(parts) > 3 else "Unknown"
+                    cuda_version = parts[4].strip() if len(parts) > 4 else "Unknown"
+                    
+                    # 提取内存大小（去除MiB或MB后缀）
+                    memory_match = re.search(r'(\d+)', memory)
+                    memory_total = int(memory_match.group(1)) if memory_match else 0
+                    
+                    # 创建GPU对象
+                    gpu = GPUInfo(
+                        id=f"{node.id}-gpu-{index}",
+                        name=name,
+                        memory_total=memory_total,
+                        gpu_type=GPUType.NVIDIA,
+                        compute_capability="Unknown",  # 无法从nvidia-smi直接获取计算能力
+                        extra_info={
+                            "driver_version": driver_version,
+                            "cuda_version": cuda_version
+                        }
+                    )
+                    gpus.append(gpu)
                 
         except Exception as e:
             logger.error(f"Error getting NVIDIA GPU info: {e}")
+            # 如果无法获取实际GPU信息，返回一个模拟的GPU
+            # 这样至少系统可以继续工作
+            gpu = GPUInfo(
+                id=f"{node.id}-gpu-0",
+                name="NVIDIA GPU (Simulated)",
+                memory_total=16384,  # 16GB
+                gpu_type=GPUType.NVIDIA,
+                extra_info={
+                    "note": "This is a simulated GPU because actual GPU info could not be retrieved",
+                    "error": str(e)
+                }
+            )
+            gpus.append(gpu)
             
         return gpus
     
@@ -206,12 +326,97 @@ class AppleGPUAdapter(GPUAdapter):
         
         # 从配置中读取节点信息
         for node_config in config.get("nodes", []):
+            # 获取实际的主机名和系统信息
+            import platform
+            import socket
+            import subprocess
+            import re
+            
+            try:
+                hostname = platform.node()
+                ip_address = socket.gethostbyname(socket.gethostname())
+                
+                # 获取更多系统信息
+                os_info = platform.system() + " " + platform.release()
+                
+                # 获取CPU信息
+                cpu_model = ""
+                cpu_cores = 0
+                cpu_arch = ""
+                
+                # 获取内存信息
+                memory_total = 0
+                memory_available = 0
+                
+                if platform.system() == "Darwin":  # macOS
+                    try:
+                        # 获取CPU型号
+                        cmd = "sysctl -n machdep.cpu.brand_string"
+                        cpu_model = subprocess.check_output(cmd, shell=True).decode().strip()
+                        if not cpu_model or "Apple" not in cpu_model:
+                            cpu_model = "Apple Silicon"
+                            
+                        # 获取CPU核心数
+                        cmd = "sysctl -n hw.ncpu"
+                        cpu_cores = int(subprocess.check_output(cmd, shell=True).decode().strip())
+                        
+                        # 获取CPU架构
+                        cmd = "uname -m"
+                        cpu_arch = subprocess.check_output(cmd, shell=True).decode().strip()
+                        
+                        # 获取总内存
+                        cmd = "sysctl -n hw.memsize"
+                        mem_bytes = int(subprocess.check_output(cmd, shell=True).decode().strip())
+                        memory_total = mem_bytes // (1024 * 1024)  # 转换为MB
+                        
+                        # 获取可用内存
+                        cmd = "vm_stat"
+                        vm_stat = subprocess.check_output(cmd, shell=True).decode()
+                        page_size_match = re.search(r'page size of (\d+) bytes', vm_stat)
+                        pages_free_match = re.search(r'Pages free:\s+(\d+)', vm_stat)
+                        
+                        if page_size_match and pages_free_match:
+                            page_size = int(page_size_match.group(1))
+                            pages_free = int(pages_free_match.group(1))
+                            memory_available = (pages_free * page_size) // (1024 * 1024)  # 转换为MB
+                    except Exception as e:
+                        logger.error(f"Error getting system info: {e}")
+                        cpu_model = "Apple Silicon"
+                        cpu_cores = 10  # 默认值
+                        cpu_arch = "arm64"  # 默认值
+                        memory_total = 16384  # 默认值 16GB
+                        memory_available = 8192  # 默认值 8GB
+            except Exception as e:
+                logger.error(f"Error getting basic system info: {e}")
+                hostname = node_config.get("name", "localhost")
+                ip_address = node_config.get("ip", "127.0.0.1")
+                os_info = "macOS"
+                cpu_model = "Apple Silicon"
+                cpu_cores = 10  # 默认值
+                cpu_arch = "arm64"  # 默认值
+                memory_total = 16384  # 默认值 16GB
+                memory_available = 8192  # 默认值 8GB
+            
+            # 创建单个真实节点
             node = NodeInfo(
                 id=node_config.get("id", str(uuid.uuid4())),
-                name=node_config.get("name", f"apple-node-{len(nodes)}"),
-                ip=node_config.get("ip", "127.0.0.1"),
+                name=hostname,
+                ip=ip_address,
                 port=node_config.get("port", 22),
-                status="unknown"
+                status="online",  # 默认为在线状态
+                memory_total=memory_total,
+                memory_available=memory_available,
+                cpu_info={
+                    "model": cpu_model,
+                    "cores": cpu_cores,
+                    "architecture": cpu_arch
+                },
+                metadata={
+                    "node_type": "master",
+                    "os": os_info,
+                    "hostname": hostname,
+                    "description": node_config.get("description", "M3 Max单节点集群")
+                }
             )
             nodes.append(node)
             
@@ -221,24 +426,68 @@ class AppleGPUAdapter(GPUAdapter):
         """获取Apple Silicon GPU信息"""
         logger.info(f"Getting GPU info for Apple Silicon node: {node.name}")
         
-        # 在实际实现中，这里会通过SSH或API调用系统命令
-        # 为演示目的，我们模拟一些GPU
         gpus = []
         
         try:
-            # 实际实现会执行: ssh {node.ip} system_profiler SPDisplaysDataType
-            # 这里模拟返回结果
-            gpu_model = node.metadata.get("gpu_model", "M2 Max")
+            import platform
+            import subprocess
+            import re
             
-            # Apple Silicon通常只有一个集成GPU
+            # 获取实际的Mac型号
+            mac_model = "M3 Max"  # 默认值
+            memory_total = 32768  # 默认值，32GB
+            gpu_cores = 40        # 默认值，40核心
+            
+            try:
+                # 尝试从系统信息中获取Mac型号
+                cmd = "system_profiler SPHardwareDataType"
+                hardware_info = subprocess.check_output(cmd, shell=True).decode().strip()
+                
+                # 提取型号
+                model_match = re.search(r'Model Name:\s*(.+)', hardware_info)
+                if model_match:
+                    mac_model = model_match.group(1).strip()
+                
+                # 提取内存
+                memory_match = re.search(r'Memory:\s*(\d+)\s*GB', hardware_info)
+                if memory_match:
+                    memory_gb = int(memory_match.group(1))
+                    memory_total = memory_gb * 1024  # 转换为MB
+                
+                # 尝试获取GPU核心数
+                if "M3 Max" in mac_model:
+                    # M3 Max有两种配置：30核心和40核心
+                    gpu_cores = 40  # 默认使用高配置
+                elif "M3 Pro" in mac_model:
+                    gpu_cores = 19
+                elif "M3" in mac_model:
+                    gpu_cores = 10
+                elif "M2 Max" in mac_model:
+                    gpu_cores = 38
+                elif "M2 Pro" in mac_model:
+                    gpu_cores = 19
+                elif "M2" in mac_model:
+                    gpu_cores = 10
+                elif "M1 Max" in mac_model:
+                    gpu_cores = 32
+                elif "M1 Pro" in mac_model:
+                    gpu_cores = 16
+                elif "M1" in mac_model:
+                    gpu_cores = 8
+            except Exception as e:
+                logger.warning(f"Error getting detailed hardware info: {e}")
+            
+            # 创建真实GPU信息
             gpu = GPUInfo(
                 id=f"{node.id}-gpu-0",
-                name=f"Apple {gpu_model}",
-                memory_total=32768,  # 32GB 统一内存
+                name=f"Apple {mac_model} GPU",
+                memory_total=memory_total,  # 实际内存大小
                 gpu_type=GPUType.APPLE,
                 extra_info={
-                    "cores": 30,
-                    "metal_version": "3.0"
+                    "cores": gpu_cores,
+                    "metal_version": "3.0",
+                    "chip_model": mac_model,
+                    "unified_memory": True
                 }
             )
             gpus.append(gpu)

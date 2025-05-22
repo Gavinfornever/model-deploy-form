@@ -1,2 +1,8 @@
 flask
 flask-cors
+redis
+paramiko
+requests
+scp
+python-dotenv
+flask-jwt-extended

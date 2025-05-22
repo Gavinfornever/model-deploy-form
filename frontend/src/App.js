@@ -15,6 +15,8 @@ import ImageManagement from './components/ImageManagement';
 import Login from './components/Login';
 import UserProfile from './components/UserProfile';
 import ApiKeyManagement from './components/ApiKeyManagement';
+import ClusterRegistration from './components/ClusterRegistration';
+import ClusterList from './components/ClusterList';
 
 const { Content, Footer } = Layout;
 
@@ -102,6 +104,16 @@ function App() {
               <Route path="/api-keys" element={
                 <ProtectedRoute>
                   <ApiKeyManagement />
+                </ProtectedRoute>
+              } />
+              <Route path="/clusters" element={
+                <ProtectedRoute>
+                  <ClusterList />
+                </ProtectedRoute>
+              } />
+              <Route path="/register-cluster" element={
+                <ProtectedRoute>
+                  <ClusterRegistration />
                 </ProtectedRoute>
               } />
               <Route path="*" element={<Navigate to="/login" />} />
