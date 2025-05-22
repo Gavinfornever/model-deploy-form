@@ -105,6 +105,25 @@ def discover_local_resources(adapter_type: str) -> List[NodeInfo]:
                 
             except Exception as e:
                 logger.error(f"Error getting system info: {e}")
+        elif platform.system() == "Linux":  # Linux
+            try:
+                # 获取CPU核心数
+                cmd = "nproc"
+                cpu_cores = subprocess.check_output(cmd, shell=True).decode().strip()
+                node.metadata["cpu_cores"] = cpu_cores
+                
+                # 获取CPU型号
+                cmd = "cat /proc/cpuinfo | grep 'model name' | head -1 | cut -d':' -f2"
+                cpu_model = subprocess.check_output(cmd, shell=True).decode().strip()
+                node.metadata["cpu_model"] = cpu_model
+                
+                # 获取内存大小
+                cmd = "grep MemTotal /proc/meminfo | awk '{print $2}'"
+                memory_kb = int(subprocess.check_output(cmd, shell=True).decode().strip())
+                node.metadata["memory_total"] = memory_kb // 1024  # 转换为MB
+                
+            except Exception as e:
+                logger.error(f"Error getting system info on Linux: {e}")
         
         logger.info(f"Discovered node: {node.name} with {len(node.gpus)} GPUs")
         
