@@ -61,7 +61,9 @@ const ClusterRegistration = () => {
         adapter_type: savedAdapterType || 'nvidia',
         center_node_ip: values.center_node_ip,
         center_node_port: values.center_node_port || 22,
-        center_controller_url: "http://localhost:5001",
+        // 根据环境动态选择端口
+        center_controller_url: values.center_node_ip === '127.0.0.1' || values.center_node_ip === 'localhost' ? 
+          "http://localhost:5001" : "http://localhost:6001",
         internal_ip: values.internal_ip
       };
       

@@ -206,6 +206,12 @@ const ClusterList = () => {
 
     const nodes = clusterDetail.nodes || [];
     const totalGpus = nodes.reduce((sum, node) => sum + (node.gpus ? node.gpus.length : 0), 0);
+    const totalCPUCores = nodes.reduce((acc, node) => {
+      return acc + (node.metadata?.cpu_cores ? parseInt(node.metadata.cpu_cores) : 0);
+    }, 0);
+    const totalMemory = nodes.reduce((acc, node) => {
+      return acc + (node.metadata?.memory_total || 0);
+    }, 0);
 
     return (
       <Modal
@@ -482,7 +488,8 @@ const ClusterList = () => {
                               width: 100,
                               render: (_, record) => (
                                 <span>
-                                  {record.cpu_info ? `${record.cpu_info.cores} 核` : '未知'}
+                                  {record.metadata && record.metadata.cpu_cores ? `${record.metadata.cpu_cores} 核` : '未知'}
+                                  {record.metadata && record.metadata.cpu_model ? ` (${record.metadata.cpu_model})` : ''}
                                 </span>
                               )
                             },
@@ -492,14 +499,14 @@ const ClusterList = () => {
                               width: 180,
                               render: (_, record) => (
                                 <span>
-                                  {record.memory_total ? formatMemory(record.memory_total) : '未知'}
-                                  {record.memory_total && record.memory_available && (
+                                  {record.metadata && record.metadata.memory_total ? formatMemory(record.metadata.memory_total) : '未知'}
+                                  {record.metadata && record.metadata.memory_total && record.metadata.memory_available && (
                                     <>
                                       <br />
                                       <Progress 
-                                        percent={calculateMemoryUsage(record.memory_total, record.memory_available)} 
+                                        percent={calculateMemoryUsage(record.metadata.memory_total, record.metadata.memory_available)} 
                                         size="small" 
-                                        status={calculateMemoryUsage(record.memory_total, record.memory_available) > 80 ? "exception" : "normal"}
+                                        status={calculateMemoryUsage(record.metadata.memory_total, record.metadata.memory_available) > 80 ? "exception" : "normal"}
                                       />
                                     </>
                                   )}
