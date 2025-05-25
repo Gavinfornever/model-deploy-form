@@ -121,7 +121,7 @@ function App() {
           </div>
         </Content>
         <Footer style={{ textAlign: 'center' }}>
-          模型管理系统 ©{new Date().getFullYear()} Created by Cascade
+          大模型部署平台 ©{new Date().getFullYear()} by 后端团队
         </Footer>
       </Layout>
     </Router>

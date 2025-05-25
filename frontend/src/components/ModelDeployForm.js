@@ -46,57 +46,78 @@ const ModelDeployForm = () => {
   // 获取镜像列表
   const fetchImages = async () => {
     try {
+      // 使用后端API获取镜像列表
       const response = await fetch('http://127.0.0.1:5000/api/images');
       const result = await response.json();
-      setImages(result || []);
+      
+      if (result.status === 'success' && result.data) {
+        console.log('获取镜像数据成功:', result.data);
+        setImages(result.data);
+      } else {
+        console.error('获取镜像列表失败:', result.message);
+        setImages([]);
+      }
     } catch (error) {
       console.error('获取镜像列表失败:', error);
-      // 使用模拟数据
-      setImages([
-        {
-          id: 1,
-          name: 'vllm_image',
-          version: 'v3',
-          cluster: 'muxi集群',
-          size: '5.2GB',
-          createDate: '2025-04-15',
-          creator: '张三'
-        },
-        {
-          id: 2,
-          name: 'huggingface_image',
-          version: 'v2',
-          cluster: 'A10集群',
-          size: '3.8GB',
-          createDate: '2025-04-10',
-          creator: '李四'
-        },
-        // 其他镜像...
-      ]);
+      // 如果获取失败，使用空数组
+      setImages([]);
     }
   };
 
   // 获取集群列表
   const fetchClusters = async () => {
     try {
-      const response = await fetch('http://127.0.0.1:5000/api/clusters');
+      // 使用中心控制器的API获取实际集群列表
+      const response = await fetch('http://localhost:5001/api/clusters');
       const result = await response.json();
-      setClusters(result.data || ['muxi集群', 'A10集群', 'A100集群']);
+      
+      if (result.status === 'success' && result.data) {
+        // 将集群数据转换为适合下拉框的格式
+        const clusterList = result.data.map(cluster => ({
+          id: cluster.id,
+          name: cluster.name,
+          adapter_type: cluster.adapter_type
+        }));
+        setClusters(clusterList);
+      } else {
+        console.error('获取集群列表失败:', result.message);
+        // 如果获取失败，使用默认数据
+        setClusters([]);
+      }
     } catch (error) {
       console.error('获取集群列表失败:', error);
-      setClusters(['muxi集群', 'A10集群', 'A100集群']);
+      setClusters([]);
     }
   };
 
   // 获取节点列表
-  const fetchNodes = async () => {
+  const fetchNodes = async (clusterId = null) => {
     try {
-      const response = await fetch('http://127.0.0.1:5000/api/nodes');
+      if (!clusterId) {
+        // 如果没有指定集群ID，清空节点列表
+        setNodes([]);
+        return;
+      }
+      
+      // 使用中心控制器的API获取指定集群的节点列表
+      const response = await fetch(`http://localhost:5001/api/clusters/${clusterId}/nodes`);
       const result = await response.json();
-      setNodes(result.data || ['node1', 'node2', 'node3', 'node4']);
+      
+      if (result.status === 'success' && result.data) {
+        // 将节点数据转换为适合下拉框的格式
+        const nodeList = result.data.map(node => ({
+          id: node.id,
+          name: node.name,
+          status: node.status
+        }));
+        setNodes(nodeList);
+      } else {
+        console.error('获取节点列表失败:', result.message);
+        setNodes([]);
+      }
     } catch (error) {
       console.error('获取节点列表失败:', error);
-      setNodes(['node1', 'node2', 'node3', 'node4']);
+      setNodes([]);
     }
   };
 
@@ -105,7 +126,7 @@ const ModelDeployForm = () => {
     fetchModelConfigs();
     fetchImages();
     fetchClusters();
-    fetchNodes();
+    // 初始时不加载节点列表，等待选择集群后加载
     
     // 检查是否有从其他页面传递过来的数据
     const storedConfig = localStorage.getItem('selectedModelConfig');
@@ -166,20 +187,13 @@ const ModelDeployForm = () => {
     setSelectedConfig(config);
     
     if (config) {
-      // 将gpuCount转换为gpuIds数组
-      const gpuIds = config.gpuIds || 
-        (config.gpuCount ? Array.from({length: config.gpuCount}, (_, i) => i) : [0]);
-      
-      // 自动填充表单
+      // 自动填充表单，但不填充集群和节点
       form.setFieldsValue({
         modelName: config.modelName,
         backend: config.backend,
-        modelPath: config.modelPath,
-        cluster: config.cluster,
-        node: config.node,
-        gpuIds: gpuIds,
-        memoryUsage: config.memoryUsage,
-        creator_id: config.creator_id
+        modelPath: config.ossPath || 'oss://model_files/default.tar',
+        gpuCount: config.gpuCount || 1, // 直接使用gpuCount，如果没有则默认为1
+        memoryUsage: config.memoryUsage
       });
     }
   };
@@ -190,10 +204,9 @@ const ModelDeployForm = () => {
     setSelectedImage(image);
     
     if (image) {
-      // 自动填充镜像相关字段
+      // 自动填充镜像相关字段，只填充镜像名
       form.setFieldsValue({
-        image: `${image.name}:${image.version}`,
-        cluster: image.cluster // 可选：根据镜像自动设置集群
+        image: `${image.name}:${image.version}`
       });
     }
   };
@@ -205,11 +218,16 @@ const ModelDeployForm = () => {
       // 构建部署请求数据
       const deployData = {
         ...values,
+        // 将gpuCount转换为整数
+        gpuCount: parseInt(values.gpuCount, 10),
+        // 确保使用正确的集群名称
+        cluster: 'gpt4',  // 使用已注册的集群名称
         deployTime: new Date().toISOString(),
         status: 'pending'
       };
 
-      const response = await fetch('http://127.0.0.1:5000/api/deploy', {
+      // 提交到中心控制器（端口5001）
+      const response = await fetch('http://127.0.0.1:5001/api/deploy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(deployData),
@@ -249,7 +267,7 @@ const ModelDeployForm = () => {
             layout="vertical"
             onFinish={handleSubmit}
             initialValues={{
-              gpuCount: 1,
+              gpuCount: 1, // 默认GPU数量为1
               memoryUsage: 16
             }}
           >
@@ -258,10 +276,10 @@ const ModelDeployForm = () => {
                 <Card 
                   title={<span><SettingOutlined /> 选择模型配置</span>} 
                   bordered={false} 
-                  style={{ marginBottom: 16 }}
+                  style={{ marginBottom: 16, width: '100%' }}
+                  bodyStyle={{ borderBottom: 'none' }}
                 >
                   <Form.Item
-                    label="模型配置"
                     name="configId"
                   >
                     <Select
@@ -272,20 +290,12 @@ const ModelDeployForm = () => {
                       optionFilterProp="children"
                     >
                       {modelConfigs.map(config => (
-                        <Option key={config.id} value={config.id}>{config.modelName} ({config.backend})</Option>
+                        <Option key={config.id} value={config.id}>{config.modelName}</Option>
                       ))}
                     </Select>
                   </Form.Item>
                   
-                  {selectedConfig && (
-                    <div className="selected-config-info">
-                      <Divider orientation="left">已选配置</Divider>
-                      <p><strong>模型名称:</strong> {selectedConfig.modelName}</p>
-                      <p><strong>后端:</strong> {selectedConfig.backend}</p>
-                      <p><strong>集群:</strong> {selectedConfig.cluster}</p>
-                      <p><strong>GPU数量:</strong> {selectedConfig.gpuCount}</p>
-                    </div>
-                  )}
+
                 </Card>
               </Col>
               
@@ -293,10 +303,10 @@ const ModelDeployForm = () => {
                 <Card 
                   title={<span><CloudOutlined /> 选择镜像</span>} 
                   bordered={false} 
-                  style={{ marginBottom: 16 }}
+                  style={{ marginBottom: 16, width: '100%' }}
+                  bodyStyle={{ borderBottom: 'none' }}
                 >
                   <Form.Item
-                    label="镜像"
                     name="imageId"
                   >
                     <Select
@@ -307,20 +317,12 @@ const ModelDeployForm = () => {
                       optionFilterProp="children"
                     >
                       {images.map(image => (
-                        <Option key={image.id} value={image.id}>{image.name}:{image.version} ({image.cluster})</Option>
+                        <Option key={image.id} value={image.id}>{image.name}:{image.version}</Option>
                       ))}
                     </Select>
                   </Form.Item>
                   
-                  {selectedImage && (
-                    <div className="selected-image-info">
-                      <Divider orientation="left">已选镜像</Divider>
-                      <p><strong>镜像名称:</strong> {selectedImage.name}</p>
-                      <p><strong>版本:</strong> {selectedImage.version}</p>
-                      <p><strong>集群:</strong> {selectedImage.cluster}</p>
-                      <p><strong>大小:</strong> {selectedImage.size}</p>
-                    </div>
-                  )}
+
                 </Card>
               </Col>
             </Row>
@@ -360,9 +362,7 @@ const ModelDeployForm = () => {
                   >
                     <Select placeholder="请选择部署后端">
                       <Option value="vllm">vllm</Option>
-                      <Option value="general">general</Option>
-                      <Option value="vilm">vilm</Option>
-                      <Option value="yllm">yllm</Option>
+                      <Option value="transformers">transformers</Option>
                     </Select>
                   </Form.Item>
                 </Col>
@@ -385,9 +385,22 @@ const ModelDeployForm = () => {
                     label="部署集群"
                     rules={[{ required: true, message: '请选择部署集群' }]}
                   >
-                    <Select placeholder="请选择部署集群">
+                    <Select 
+                      placeholder="请选择部署集群"
+                      onChange={(value) => {
+                        // 当选择集群时，获取该集群的节点列表
+                        const selectedCluster = clusters.find(c => c.id === value);
+                        if (selectedCluster) {
+                          fetchNodes(selectedCluster.id);
+                          // 清空已选节点
+                          form.setFieldsValue({ node: undefined });
+                        }
+                      }}
+                    >
                       {clusters.map(cluster => (
-                        <Option key={cluster} value={cluster}>{cluster}</Option>
+                        <Option key={cluster.id} value={cluster.id}>
+                          {cluster.name} ({cluster.adapter_type})
+                        </Option>
                       ))}
                     </Select>
                   </Form.Item>
@@ -399,9 +412,14 @@ const ModelDeployForm = () => {
                     label="部署节点"
                     rules={[{ required: true, message: '请选择部署节点' }]}
                   >
-                    <Select placeholder="请选择部署节点">
+                    <Select 
+                      placeholder="请选择部署节点"
+                      disabled={!form.getFieldValue('cluster')} // 如果没有选择集群，禁用节点选择
+                    >
                       {nodes.map(node => (
-                        <Option key={node} value={node}>{node}</Option>
+                        <Option key={node.id} value={node.id}>
+                          {node.name} ({node.status === 'online' ? '在线' : '离线'})
+                        </Option>
                       ))}
                     </Select>
                   </Form.Item>
@@ -411,19 +429,16 @@ const ModelDeployForm = () => {
               <Row gutter={16}>
                 <Col span={12}>
                   <Form.Item
-                    name="gpuIds"
-                    label="指定GPU"
-                    rules={[{ required: true, message: '请指定GPU序号' }]}
+                    name="gpuCount"
+                    label="GPU数量"
+                    rules={[{ required: true, message: '请输入所需GPU数量' }]}
                   >
-                    <Select
-                      mode="multiple"
-                      placeholder="请选择GPU序号"
-                      style={{ width: '100%' }}
-                    >
-                      {[0, 1, 2, 3, 4, 5, 6, 7].map(id => (
-                        <Option key={id} value={id}>GPU-{id}</Option>
-                      ))}
-                    </Select>
+                    <InputNumber 
+                      min={1} 
+                      max={8} 
+                      placeholder="请输入所需GPU数量" 
+                      style={{ width: '100%' }} 
+                    />
                   </Form.Item>
                 </Col>
                 
@@ -443,7 +458,7 @@ const ModelDeployForm = () => {
                 label="模型路径"
                 rules={[{ required: true, message: '请输入模型路径' }]}
               >
-                <Input placeholder="请输入模型路径，例如：/mnt/models/llama-7b" />
+                <Input placeholder="请输入模型路径，例如：oss://model_files/qwen_cpt_vllm.tar" />
               </Form.Item>
               
               <Form.Item
@@ -453,13 +468,7 @@ const ModelDeployForm = () => {
                 <TextArea rows={4} placeholder="请输入部署描述信息" />
               </Form.Item>
               
-              <Form.Item
-                name="creator_id"
-                label="创建者ID"
-                rules={[{ required: true, message: '请输入创建者ID' }]}
-              >
-                <Input placeholder="请输入创建者ID" />
-              </Form.Item>
+
             </Card>
             
             <Form.Item style={{ marginTop: 16, textAlign: 'center' }}>

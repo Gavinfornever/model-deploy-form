@@ -1,20 +1,78 @@
 from flask import Flask, request, jsonify
-from flask import Flask, request, jsonify
 from flask_cors import CORS
 import uuid
 import random
 import datetime
+import json
 import jwt
+from bson import ObjectId
+from pymongo import MongoClient
+
+# 自定义JSON编码器处理MongoDB的ObjectId
+class MongoJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, ObjectId):
+            return str(obj)
+        if isinstance(obj, datetime.datetime):
+            return obj.isoformat()
+        return super(MongoJSONEncoder, self).default(obj)
 
 # 导入API蓝图
 from chat_api import chat_api
 from image_api import image_api
 from model_config_api import model_config_api
-from auth_api import auth_api, users, generate_password_hash, check_password_hash, SECRET_KEY
+from auth_api import auth_api, generate_password_hash, check_password_hash, SECRET_KEY
 from api_key_api import api_key_api
+
+# 连接MongoDB
+try:
+    client = MongoClient('mongodb://root:650803@localhost:27017/')
+    db = client['model_deploy_db']
+    users_collection = db['users']
+    
+    # 检查用户集合是否为空，如果为空则初始化数据
+    if users_collection.count_documents({}) == 0:
+        # 初始化用户数据
+        initial_users = [
+            {
+                "id": "1",
+                "username": "admin",
+                "password": generate_password_hash("admin123"),
+                "email": "admin@example.com",
+                "phone": "13800138000",
+                "department": "技术部",
+                "role": "管理员",
+                "avatar": None,
+                "status": "active",
+                "createTime": "2025-01-01T08:00:00Z",
+                "lastLogin": "2025-05-07T10:30:00Z"
+            },
+            {
+                "id": "2",
+                "username": "user",
+                "password": generate_password_hash("user123"),
+                "email": "user@example.com",
+                "phone": "13900139000",
+                "department": "产品部",
+                "role": "普通用户",
+                "avatar": None,
+                "status": "active",
+                "createTime": "2025-01-02T09:00:00Z",
+                "lastLogin": "2025-05-06T15:45:00Z"
+            }
+        ]
+        users_collection.insert_many(initial_users)
+        print("用户数据初始化成功")
+    
+    print("MongoDB用户集合连接成功")
+except Exception as e:
+    print(f"MongoDB连接失败: {e}")
 
 app = Flask(__name__)
 CORS(app)
+
+# 使用自定义JSON编码器
+app.json_encoder = MongoJSONEncoder
 
 # 注册API蓝图
 app.register_blueprint(chat_api, url_prefix='/api')
@@ -164,7 +222,7 @@ def deploy_model():
     data = request.json
     
     # 验证必要字段
-    required_fields = ['modelName', 'version', 'backend', 'image', 'cluster', 'node', 'gpuIds', 'memoryUsage', 'modelPath']
+    required_fields = ['modelName', 'version', 'backend', 'image', 'cluster', 'node', 'gpuCount', 'memoryUsage', 'modelPath']
     for field in required_fields:
         if field not in data or not data[field]:
             return jsonify({
@@ -181,13 +239,12 @@ def deploy_model():
         'image': data['image'],
         'cluster': data['cluster'],
         'node': data['node'],
-        'gpuIds': data['gpuIds'],  # 使用指定的GPU序号
-        'gpuCount': len(data['gpuIds']),  # 计算GPU数量
+        'gpuCount': int(data['gpuCount']),  # 直接使用指定的GPU数量
         'memoryUsage': data['memoryUsage'],
         'modelPath': data['modelPath'],
         'description': data.get('description', ''),
         'creator_id': data.get('creator_id', 'anonymous'),
-        'deployTime': datetime.now().isoformat(),
+        'deployTime': datetime.datetime.now().isoformat(),
         'status': 'pending',  # 初始状态为待处理
     }
     
@@ -204,8 +261,7 @@ def deploy_model():
         'image': new_deployment['image'],
         'cluster': new_deployment['cluster'],
         'node': new_deployment['node'],
-        'gpuIds': new_deployment['gpuIds'],  # 使用指定的GPU序号
-        'gpuCount': new_deployment['gpuCount'],
+        'gpuCount': new_deployment['gpuCount'],  # 使用指定的GPU数量
         'memoryUsage': new_deployment['memoryUsage'],
         'status': 'running',  # 模拟部署成功后状态变为运行中
         'createTime': new_deployment['deployTime'],
@@ -222,152 +278,169 @@ def deploy_model():
 # 用户管理API
 @app.route('/api/users', methods=['GET'])
 def get_users():
-    # 验证JWT令牌
-    auth_header = request.headers.get('Authorization')
-    if auth_header:
-        try:
-            token = auth_header.split(' ')[1]
-            payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
-            # 如果是管理员，返回所有用户，否则只返回自己的信息
-            if payload.get('role') == '管理员':
+    try:
+        # 打印请求头
+        print('\n\n请求头:', request.headers)
+        print('Authorization:', request.headers.get('Authorization'))
+        # 验证JWT令牌
+        auth_header = request.headers.get('Authorization')
+        if auth_header:
+            try:
+                print('Authorization header:', auth_header)
+                token = auth_header.split(' ')[1]
+                print('Token:', token)
+                try:
+                    payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+                    print('Payload:', payload)
+                except Exception as jwt_error:
+                    print('JWT解码错误:', str(jwt_error))
+                    return jsonify({'status': 'error', 'message': f'JWT令牌无效: {str(jwt_error)}'}), 401
+                # 所有用户都可以获取用户列表，但只有管理员可以看到敏感信息
+                print('用户角色:', payload.get('role'))
+                users = list(users_collection.find({}))
+                # 手动移除密码字段和处理ObjectId
+                for user in users:
+                    if '_id' in user:
+                        user['_id'] = str(user['_id'])
+                    if 'password' in user:
+                        del user['password']
                 return jsonify({'status': 'success', 'data': users}), 200
-            else:
-                # 过滤掉密码字段
-                user_data = next((user for user in users if user['id'] == payload.get('id')), None)
-                if user_data:
-                    user_copy = user_data.copy()
-                    if 'password' in user_copy:
-                        del user_copy['password']
-                    return jsonify({'status': 'success', 'data': [user_copy]}), 200
-        except Exception as e:
-            return jsonify({'status': 'error', 'message': f'无效的令牌: {str(e)}'}), 401
-    
-    # 为了便于测试，如果没有令牌也返回所有用户（实际生产环境应该返回401）
-    safe_users = []
-    for user in users:
-        user_copy = user.copy()
-        if 'password' in user_copy:
-            del user_copy['password']
-        safe_users.append(user_copy)
-    return jsonify({'status': 'success', 'data': safe_users}), 200
+            except Exception as e:
+                return jsonify({'status': 'error', 'message': f'无效的令牌: {str(e)}'}), 401
+        
+        # 如果没有令牌，返回401未授权错误
+        return jsonify({'status': 'error', 'message': '未授权访问，请先登录'}), 401
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'获取用户列表失败: {str(e)}'}), 500
 
 @app.route('/api/users/<user_id>', methods=['GET'])
 def get_user(user_id):
-    user = next((user for user in users if user['id'] == user_id), None)
-    if user:
-        # 不返回密码字段
-        user_copy = user.copy()
-        if 'password' in user_copy:
-            del user_copy['password']
-        return jsonify({'status': 'success', 'data': user_copy}), 200
-    return jsonify({'status': 'error', 'message': '用户不存在'}), 404
+    try:
+        user = users_collection.find_one({'id': user_id}, {'_id': 0, 'password': 0})
+        if user:
+            return jsonify({'status': 'success', 'data': user}), 200
+        return jsonify({'status': 'error', 'message': '用户不存在'}), 404
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'获取用户信息失败: {str(e)}'}), 500
 
 @app.route('/api/users', methods=['POST'])
 def create_user():
-    data = request.json
-    if not data or 'username' not in data or 'email' not in data:
-        return jsonify({'status': 'error', 'message': '缺少必要字段'}), 400
-    
-    # 检查用户名是否已存在
-    if any(user['username'] == data['username'] for user in users):
-        return jsonify({'status': 'error', 'message': '用户名已存在'}), 400
-    
-    # 检查邮箱是否已存在
-    if any(user['email'] == data['email'] for user in users):
-        return jsonify({'status': 'error', 'message': '邮箱已存在'}), 400
-    
-    # 生成唯一ID
-    new_user = {
-        'id': str(uuid.uuid4())[:8],
-        'username': data['username'],
-        'email': data['email'],
-        'phone': data.get('phone', ''),
-        'department': data.get('department', ''),
-        'role': data.get('role', '普通用户'),
-        'status': data.get('status', 'active'),
-        'createTime': data.get('createTime', datetime.datetime.now().isoformat()),
-        'lastLogin': None
-    }
-    
-    # 处理密码字段
-    if 'password' in data and data['password']:
-        new_user['password'] = generate_password_hash(data['password'])
-    else:
-        # 如果没有提供密码，设置一个默认密码
-        new_user['password'] = generate_password_hash('123456')
-    
-    users.append(new_user)
-    
-    # 不返回密码字段
-    response_user = new_user.copy()
-    if 'password' in response_user:
-        del response_user['password']
-    
-    return jsonify({'status': 'success', 'data': response_user}), 201
+    try:
+        data = request.json
+        if not data or 'username' not in data or 'email' not in data:
+            return jsonify({'status': 'error', 'message': '缺少必要字段'}), 400
+        
+        # 检查用户名是否已存在
+        if users_collection.find_one({'username': data['username']}):
+            return jsonify({'status': 'error', 'message': '用户名已存在'}), 400
+        
+        # 检查邮箱是否已存在
+        if users_collection.find_one({'email': data['email']}):
+            return jsonify({'status': 'error', 'message': '邮箱已存在'}), 400
+        
+        # 生成唯一ID
+        new_user = {
+            'id': str(uuid.uuid4())[:8],
+            'username': data['username'],
+            'email': data['email'],
+            'phone': data.get('phone', ''),
+            'department': data.get('department', ''),
+            'role': data.get('role', '普通用户'),
+            'status': data.get('status', 'active'),
+            'createTime': data.get('createTime', datetime.datetime.now().isoformat()),
+            'lastLogin': None
+        }
+        
+        # 处理密码字段
+        if 'password' in data and data['password']:
+            new_user['password'] = generate_password_hash(data['password'])
+        else:
+            # 如果没有提供密码，设置一个默认密码
+            new_user['password'] = generate_password_hash('123456')
+        
+        # 将用户保存到MongoDB
+        users_collection.insert_one(new_user)
+        
+        # 不返回密码字段
+        response_user = new_user.copy()
+        if 'password' in response_user:
+            del response_user['password']
+        
+        return jsonify({'status': 'success', 'data': response_user}), 201
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'创建用户失败: {str(e)}'}), 500
 
 @app.route('/api/users/<user_id>', methods=['PUT'])
 def update_user(user_id):
-    data = request.json
-    user_index = next((i for i, user in enumerate(users) if user['id'] == user_id), None)
-    
-    if user_index is None:
-        return jsonify({'status': 'error', 'message': '用户不存在'}), 404
-    
-    # 检查用户名是否已存在（排除当前用户）
-    if 'username' in data and data['username'] != users[user_index]['username']:
-        if any(user['username'] == data['username'] for user in users if user['id'] != user_id):
-            return jsonify({'status': 'error', 'message': '用户名已存在'}), 400
-    
-    # 检查邮箱是否已存在（排除当前用户）
-    if 'email' in data and data['email'] != users[user_index]['email']:
-        if any(user['email'] == data['email'] for user in users if user['id'] != user_id):
-            return jsonify({'status': 'error', 'message': '邮箱已存在'}), 400
-    
-    # 更新用户信息
-    update_data = {
-        'username': data.get('username', users[user_index]['username']),
-        'email': data.get('email', users[user_index]['email']),
-        'phone': data.get('phone', users[user_index].get('phone', '')),
-        'department': data.get('department', users[user_index].get('department', '')),
-        'role': data.get('role', users[user_index].get('role', '普通用户')),
-        'status': data.get('status', users[user_index].get('status', 'active'))
-    }
-    
-    # 处理密码字段
-    if 'password' in data and data['password']:
-        update_data['password'] = generate_password_hash(data['password'])
-    
-    users[user_index].update(update_data)
-    
-    # 不返回密码字段
-    response_user = users[user_index].copy()
-    if 'password' in response_user:
-        del response_user['password']
-    
-    return jsonify({'status': 'success', 'data': response_user}), 200
+    try:
+        data = request.json
+        
+        # 检查用户是否存在
+        existing_user = users_collection.find_one({'id': user_id})
+        if not existing_user:
+            return jsonify({'status': 'error', 'message': '用户不存在'}), 404
+        
+        # 检查用户名是否已存在（排除当前用户）
+        if 'username' in data and data['username'] != existing_user['username']:
+            if users_collection.find_one({'username': data['username'], 'id': {'$ne': user_id}}):
+                return jsonify({'status': 'error', 'message': '用户名已存在'}), 400
+        
+        # 检查邮箱是否已存在（排除当前用户）
+        if 'email' in data and data['email'] != existing_user['email']:
+            if users_collection.find_one({'email': data['email'], 'id': {'$ne': user_id}}):
+                return jsonify({'status': 'error', 'message': '邮箱已存在'}), 400
+        
+        # 准备更新数据
+        update_data = {}
+        
+        # 更新基本字段
+        for field in ['username', 'email', 'phone', 'department', 'role', 'status']:
+            if field in data:
+                update_data[field] = data[field]
+        
+        # 处理密码字段
+        if 'password' in data and data['password']:
+            update_data['password'] = generate_password_hash(data['password'])
+        
+        # 更新MongoDB中的用户数据
+        users_collection.update_one({'id': user_id}, {'$set': update_data})
+        
+        # 获取更新后的用户数据
+        updated_user = users_collection.find_one({'id': user_id}, {'_id': 0, 'password': 0})
+        
+        return jsonify({'status': 'success', 'data': updated_user}), 200
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'更新用户失败: {str(e)}'}), 500
 
 @app.route('/api/users/<user_id>', methods=['DELETE'])
 def delete_user(user_id):
-    # 验证JWT令牌
-    auth_header = request.headers.get('Authorization')
-    if auth_header:
-        try:
-            token = auth_header.split(' ')[1]
-            payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
-            # 只有管理员可以删除用户
-            if payload.get('role') != '管理员':
-                return jsonify({'status': 'error', 'message': '没有权限执行此操作'}), 403
-        except Exception as e:
-            return jsonify({'status': 'error', 'message': f'无效的令牌: {str(e)}'}), 401
-    
-    global users
-    initial_length = len(users)
-    users = [user for user in users if user['id'] != user_id]
-    
-    if len(users) < initial_length:
-        return jsonify({'status': 'success', 'message': '用户已删除'}), 200
-    
-    return jsonify({'status': 'error', 'message': '用户不存在'}), 404
+    try:
+        # 验证JWT令牌
+        auth_header = request.headers.get('Authorization')
+        if auth_header:
+            try:
+                token = auth_header.split(' ')[1]
+                payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+                # 只有管理员可以删除用户
+                if payload.get('role') != '管理员':
+                    return jsonify({'status': 'error', 'message': '没有权限执行此操作'}), 403
+            except Exception as e:
+                return jsonify({'status': 'error', 'message': f'无效的令牌: {str(e)}'}), 401
+        
+        # 检查用户是否存在
+        existing_user = users_collection.find_one({'id': user_id})
+        if not existing_user:
+            return jsonify({'status': 'error', 'message': '用户不存在'}), 404
+        
+        # 从 MongoDB 中删除用户
+        result = users_collection.delete_one({'id': user_id})
+        
+        if result.deleted_count > 0:
+            return jsonify({'status': 'success', 'message': '用户已删除'}), 200
+        else:
+            return jsonify({'status': 'error', 'message': '删除用户失败'}), 500
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'删除用户失败: {str(e)}'}), 500
 
 # 模型实例管理API
 @app.route('/api/models', methods=['GET'])
@@ -426,174 +499,8 @@ def update_model_status(model_id):
     model_instances[model_index]['status'] = data['status']
     return jsonify({'status': 'success', 'data': model_instances[model_index]}), 200
 
-# 模型配置数据
-model_configs = [
-    {
-        "id": "conf1",
-        "backend": "vllm",
-        "modelPath": "/mnt/share/models/dataset_E_xy_14b",
-        "cluster": "muxi",
-        "image": "deploy_image:v3",
-        "node": "node-01",
-        "modelName": "qwen_cpt_vllim",
-        "gpuCount": 4,
-        "memoryUsage": 40,
-        "creator_id": "1",
-        "createTime": "2025-04-15 14:30:00"
-    },
-    {
-        "id": "conf2",
-        "backend": "vllm",
-        "modelPath": "/mnt/share/models/xy.70b 30b fini..",
-        "cluster": "A10服务器",
-        "image": "deploy_image:v3",
-        "node": "node-02",
-        "modelName": "selfmodel_vllm",
-        "gpuCount": 2,
-        "memoryUsage": 24,
-        "creator_id": "3",
-        "createTime": "2025-04-18 09:15:00"
-    },
-    {
-        "id": "conf3",
-        "backend": "general",
-        "modelPath": "/mnt/share/models/tzy/BAAl-bge-ba..",
-        "cluster": "muxi",
-        "image": "deploy_image:v3",
-        "node": "node-03",
-        "modelName": "baai sim_general",
-        "gpuCount": 1,
-        "memoryUsage": 16,
-        "creator_id": "2",
-        "createTime": "2025-04-20 11:45:00"
-    },
-    {
-        "id": "conf4",
-        "backend": "general",
-        "modelPath": "/mnt/share/models/tzy/BAAl-bge-ba..",
-        "cluster": "A10服务器",
-        "image": "deploy_image:v3",
-        "node": "node-04",
-        "modelName": "baai sim general",
-        "gpuCount": 2,
-        "memoryUsage": 32,
-        "creator_id": "1",
-        "createTime": "2025-04-22 16:20:00"
-    },
-    {
-        "id": "conf5",
-        "backend": "vllm",
-        "modelPath": "/mnt/share/models/comment v3/",
-        "cluster": "muxi",
-        "image": "deploy_image:v3",
-        "node": "node-05",
-        "modelName": "qwen_comment vllm",
-        "gpuCount": 1,
-        "memoryUsage": 12,
-        "creator_id": "3",
-        "createTime": "2025-04-25 10:30:00"
-    }
-]
-
-# 模型配置API
-@app.route('/api/model-configs', methods=['GET'])
-def get_model_configs():
-    # 获取查询参数
-    search = request.args.get('search', '')
-    page = int(request.args.get('page', 1))
-    page_size = int(request.args.get('pageSize', 10))
-    
-    # 过滤模型配置
-    filtered_configs = model_configs
-    if search:
-        search = search.lower()
-        filtered_configs = [config for config in model_configs if 
-                          search in config['modelName'].lower() or 
-                          search in config['backend'].lower() or
-                          search in config['cluster'].lower() or
-                          search in config['node'].lower()]
-    
-    # 计算分页
-    total = len(filtered_configs)
-    start_idx = (page - 1) * page_size
-    end_idx = min(start_idx + page_size, total)
-    paginated_configs = filtered_configs[start_idx:end_idx]
-    
-    return jsonify({
-        'status': 'success',
-        'data': {
-            'configs': paginated_configs,
-            'pagination': {
-                'total': total,
-                'current': page,
-                'pageSize': page_size
-            }
-        }
-    }), 200
-
-@app.route('/api/model-configs/<config_id>', methods=['GET'])
-def get_model_config(config_id):
-    config = next((config for config in model_configs if config['id'] == config_id), None)
-    if config:
-        return jsonify({'status': 'success', 'data': config}), 200
-    return jsonify({'status': 'error', 'message': '配置不存在'}), 404
-
-@app.route('/api/model-configs', methods=['POST'])
-def create_model_config():
-    data = request.json
-    if not data:
-        return jsonify({'status': 'error', 'message': '缺少必要数据'}), 400
-    
-    required_fields = ['backend', 'modelPath', 'cluster', 'image', 'node', 'modelName', 'gpuCount', 'memoryUsage', 'creator_id']
-    for field in required_fields:
-        if field not in data:
-            return jsonify({'status': 'error', 'message': f'缺少必要字段: {field}'}), 400
-    
-    new_config = {
-        'id': f'conf{len(model_configs) + 1}',
-        'backend': data['backend'],
-        'modelPath': data['modelPath'],
-        'cluster': data['cluster'],
-        'image': data['image'],
-        'node': data['node'],
-        'modelName': data['modelName'],
-        'gpuCount': data['gpuCount'],
-        'memoryUsage': data['memoryUsage'],
-        'creator_id': data['creator_id'],
-        'createTime': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    }
-    
-    model_configs.append(new_config)
-    return jsonify({'status': 'success', 'data': new_config}), 201
-
-@app.route('/api/model-configs/<config_id>', methods=['PUT'])
-def update_model_config(config_id):
-    data = request.json
-    if not data:
-        return jsonify({'status': 'error', 'message': '缺少必要数据'}), 400
-    
-    config_index = next((i for i, config in enumerate(model_configs) if config['id'] == config_id), None)
-    if config_index is None:
-        return jsonify({'status': 'error', 'message': '配置不存在'}), 404
-    
-    # 更新配置信息
-    update_fields = ['backend', 'modelPath', 'cluster', 'image', 'node', 'modelName', 'gpuCount', 'memoryUsage']
-    for field in update_fields:
-        if field in data:
-            model_configs[config_index][field] = data[field]
-    
-    return jsonify({'status': 'success', 'data': model_configs[config_index]}), 200
-
-@app.route('/api/model-configs/<config_id>', methods=['DELETE'])
-def delete_model_config(config_id):
-    global model_configs
-    initial_length = len(model_configs)
-    model_configs = [config for config in model_configs if config['id'] != config_id]
-    
-    if len(model_configs) < initial_length:
-        return jsonify({'status': 'success', 'message': '配置已删除'}), 200
-    
-    return jsonify({'status': 'error', 'message': '配置不存在'}), 404
+# 模型配置数据和API已移至model_config_api.py
+# 使用MongoDB进行持久化存储
 
 # 获取集群列表
 # @app.route('/api/clusters', methods=['GET'])

@@ -18,7 +18,15 @@ const UserManagement = () => {
     try {
       // 使用带有认证的请求
       const token = localStorage.getItem('token');
-      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+      console.log('当前令牌:', token); // 添加日志，打印令牌
+      
+      if (!token) {
+        message.error('未找到认证令牌，请重新登录');
+        return;
+      }
+      
+      const headers = { 'Authorization': `Bearer ${token}` };
+      console.log('请求头:', headers); // 添加日志，打印请求头
       
       const response = await fetch('http://127.0.0.1:5000/api/users', {
         headers: {
@@ -26,13 +34,19 @@ const UserManagement = () => {
           'Content-Type': 'application/json'
         }
       });
+      
+      console.log('响应状态:', response.status); // 添加日志，打印响应状态
+      
       const result = await response.json();
+      console.log('响应数据:', result); // 添加日志，打印响应数据
+      
       if (result.status === 'success') {
         setUsers(result.data);
       } else {
-        message.error('获取用户列表失败');
+        message.error(`获取用户列表失败: ${result.message || '未知错误'}`);
       }
     } catch (error) {
+      console.error('获取用户列表错误:', error); // 添加日志，打印错误详情
       message.error('获取用户列表失败: ' + error.message);
     } finally {
       setLoading(false);

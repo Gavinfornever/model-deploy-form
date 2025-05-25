@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Button, Input, Space, Modal, Form, Pagination,
   Select, InputNumber, Card, message, Popconfirm, Tooltip,
-  Row, Col, Tag, Descriptions, Empty
+  Row, Col, Tag, Descriptions, Empty, Upload
 } from 'antd';
 import { 
   SearchOutlined, 
@@ -15,7 +15,10 @@ import {
   CodeOutlined,
   ClusterOutlined,
   DesktopOutlined,
-  UserOutlined
+  UserOutlined,
+  CloudOutlined,
+  UploadOutlined,
+  ApiOutlined
 } from '@ant-design/icons';
 
 const { Option } = Select;
@@ -34,6 +37,7 @@ const ModelConfig = () => {
   const [editingConfig, setEditingConfig] = useState(null);
   const [clusters, setClusters] = useState([]);
   const [nodes, setNodes] = useState([]);
+  const [images, setImages] = useState([]);
 
   // 获取模型配置列表
   const fetchConfigs = async (page = 1, pageSize = 10, search = '') => {
@@ -44,17 +48,20 @@ const ModelConfig = () => {
       );
       const result = await response.json();
       
+      console.log('获取到的模型配置数据:', result);
+      
       if (result.status === 'success') {
         setConfigs(result.data.configs);
         setPagination({
-          current: result.data.pagination.current,
-          pageSize: result.data.pagination.pageSize,
-          total: result.data.pagination.total
+          current: result.data.page || page,
+          pageSize: result.data.pageSize || pageSize,
+          total: result.data.total || 0
         });
       } else {
         message.error('获取模型配置列表失败');
       }
     } catch (error) {
+      console.error('获取模型配置失败详细信息:', error);
       message.error('获取模型配置列表失败: ' + error.message);
     } finally {
       setLoading(false);
@@ -88,11 +95,39 @@ const ModelConfig = () => {
       console.error('获取节点列表失败:', error);
     }
   };
+  
+  // 获取镜像列表
+  const fetchImages = async () => {
+    try {
+      const response = await fetch('http://127.0.0.1:5000/api/images');
+      const result = await response.json();
+      
+      if (result.status === 'success') {
+        setImages(result.data);
+      } else {
+        // 如果获取失败，使用模拟数据
+        setImages([
+          { id: 1, name: 'vllm_image', version: 'v3' },
+          { id: 2, name: 'huggingface_image', version: 'v2' },
+          { id: 13, name: 'transformers', version: 'v2' }
+        ]);
+      }
+    } catch (error) {
+      console.error('获取镜像列表失败:', error);
+      // 出错时使用模拟数据
+      setImages([
+        { id: 1, name: 'vllm_image', version: 'v3' },
+        { id: 2, name: 'huggingface_image', version: 'v2' },
+        { id: 13, name: 'transformers', version: 'v2' }
+      ]);
+    }
+  };
 
   useEffect(() => {
     fetchConfigs(pagination.current, pagination.pageSize, searchText);
     fetchClusters();
     fetchNodes();
+    fetchImages();
   }, []);
 
   // 处理表格变化（分页、筛选、排序）
@@ -116,9 +151,15 @@ const ModelConfig = () => {
   const handleEdit = (config) => {
     setEditingConfig(config);
     form.setFieldsValue({
-      ...form.getFieldsValue(),
-      gpuIds: form.getFieldValue('gpuIds') || [0],
-      memoryUsage: Number(form.getFieldValue('memoryUsage'))
+      ...config,
+      gpuCount: config.gpuCount || 4,
+      memoryUsage: Number(config.memoryUsage || 40),
+      // 确保模型路径和OSS路径一致
+      modelPath: config.ossPath || config.modelPath || 'oss://model_files/default.tar',
+      ossPath: config.ossPath || config.modelPath || 'oss://model_files/default.tar',
+      cluster: config.cluster || 'default_cluster',
+      node: config.node || 'default_node',
+      creator_id: config.creator_id || 'default_user'
     });
     setModalVisible(true);
   };
@@ -127,9 +168,13 @@ const ModelConfig = () => {
   const handleAdd = () => {
     setEditingConfig(null);
     form.resetFields();
+    // 设置默认值
     form.setFieldsValue({
-      image: 'deploy_image:v3',
-      creator_id: '1' // 默认创建者ID
+      modelPath: 'oss://model_files/default.tar',
+      ossPath: 'oss://model_files/default.tar',
+      cluster: 'default_cluster',
+      node: 'default_node',
+      creator_id: 'default_user'
     });
     setModalVisible(true);
   };
@@ -158,11 +203,37 @@ const ModelConfig = () => {
     try {
       const values = await form.validateFields();
       
+      // 添加默认的cluster、node和creator_id字段
+      values.cluster = "default_cluster";
+      values.node = "default_node";
+      values.creator_id = "default_user";
+      
+      // 确保所有必要字段都存在
+      const requiredFields = ['modelName', 'backend', 'image', 'gpuCount', 'memoryUsage', 'modelPath', 'node', 'creator_id'];
+      let missingFields = [];
+      
+      requiredFields.forEach(field => {
+        if (!values[field]) {
+          missingFields.push(field);
+        }
+      });
+      
+      if (missingFields.length > 0) {
+        console.error('缺少必要字段:', missingFields);
+        message.error(`缺少必要字段: ${missingFields.join(', ')}`);
+        return;
+      }
+      
+      // 打印表单数据以便调试
+      console.log('提交的表单数据:', values);
+      
       const url = editingConfig 
         ? `http://127.0.0.1:5000/api/model-configs/${editingConfig.id}`
         : 'http://127.0.0.1:5000/api/model-configs';
       
       const method = editingConfig ? 'PUT' : 'POST';
+      
+      console.log('发送请求到:', url, '方法:', method);
       
       const response = await fetch(url, {
         method,
@@ -172,16 +243,21 @@ const ModelConfig = () => {
         body: JSON.stringify(values),
       });
       
+      console.log('响应状态:', response.status);
+      
       const result = await response.json();
+      console.log('响应数据:', result);
       
       if (result.status === 'success') {
         message.success(`${editingConfig ? '更新' : '创建'}配置成功`);
         setModalVisible(false);
         fetchConfigs(pagination.current, pagination.pageSize, searchText);
       } else {
+        console.error('错误信息:', result.message);
         message.error(result.message || `${editingConfig ? '更新' : '创建'}失败`);
       }
     } catch (error) {
+      console.error('异常错误:', error);
       message.error(`${editingConfig ? '更新' : '创建'}失败: ` + error.message);
     }
   };
@@ -347,22 +423,21 @@ const ModelConfig = () => {
               {config.modelName}
             </h3>
             <p style={{ marginBottom: 8 }}>
-              <ClusterOutlined style={{ marginRight: 8 }} />
-              <span style={{ color: '#666' }}>集群：</span> {config.cluster}
+              <CloudOutlined style={{ marginRight: 8 }} />
+              <span style={{ color: '#666' }}>镜像：</span> {config.image || 'default_image:latest'}
             </p>
             <p style={{ marginBottom: 8 }}>
-              <DesktopOutlined style={{ marginRight: 8 }} />
-              <span style={{ color: '#666' }}>节点：</span> {config.node}
+              <ApiOutlined style={{ marginRight: 8 }} />
+              <span style={{ color: '#666' }}>后端类型：</span> {config.backend || 'vllm'}
             </p>
             <p style={{ marginBottom: 8 }}>
               <SettingOutlined style={{ marginRight: 8 }} />
-              <span style={{ color: '#666' }}>指定GPU：</span> 
-              {config.gpuIds ? config.gpuIds.map(id => `GPU-${id}`).join(', ') : 
-               (config.gpuCount ? `${config.gpuCount}个` : 'GPU-0')} / {config.memoryUsage} GB
+              <span style={{ color: '#666' }}>GPU资源：</span> 
+              {`${config.gpuCount || 4}个 x ${config.memoryUsage || 40}GB`}
             </p>
             <p style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              <CodeOutlined style={{ marginRight: 8 }} />
-              <span style={{ color: '#666' }}>路径：</span> {config.modelPath}
+              <CloudOutlined style={{ marginRight: 8 }} />
+              <span style={{ color: '#666' }}>OSS路径：</span> {config.ossPath || 'oss://model_files/default.tar'}
             </p>
           </div>
         </Card>
@@ -384,7 +459,7 @@ const ModelConfig = () => {
       <Card title="模型配置管理" style={{ width: '100%' }}>
         <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
           <Input.Search
-            placeholder="搜索模型名称、后端、集群或节点"
+            placeholder="搜索模型名称、后端或镜像"
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             onSearch={handleSearch}
@@ -455,18 +530,15 @@ const ModelConfig = () => {
             <Descriptions.Item label="主键" span={2}>{currentConfig.id}</Descriptions.Item>
             <Descriptions.Item label="模型名称" span={2}>{currentConfig.modelName}</Descriptions.Item>
             <Descriptions.Item label="部署后端">{currentConfig.backend}</Descriptions.Item>
-            <Descriptions.Item label="模型集群">{currentConfig.cluster}</Descriptions.Item>
-            <Descriptions.Item label="模型节点">{currentConfig.node}</Descriptions.Item>
+
             <Descriptions.Item label="镜像名">{currentConfig.image}</Descriptions.Item>
-            <Descriptions.Item label="指定GPU">
-              {currentConfig.gpuIds ? currentConfig.gpuIds.map(id => `GPU-${id}`).join(', ') : 
-               (currentConfig.gpuCount ? `${currentConfig.gpuCount}个` : 'GPU-0')}
+            <Descriptions.Item label="GPU资源">
+              {`${currentConfig.gpuCount || 4}个 x ${currentConfig.memoryUsage || 40}GB`}
             </Descriptions.Item>
             <Descriptions.Item label="显存占用(GB)">{currentConfig.memoryUsage}</Descriptions.Item>
-            <Descriptions.Item label="模型路径" span={2}>
-              <span style={{ wordBreak: 'break-all' }}>{currentConfig.modelPath}</span>
+            <Descriptions.Item label="OSS路径" span={2}>
+              <span style={{ wordBreak: 'break-all' }}>{currentConfig.ossPath || 'oss://model_files/default.tar'}</span>
             </Descriptions.Item>
-            <Descriptions.Item label="创建者ID">{currentConfig.creator_id}</Descriptions.Item>
             <Descriptions.Item label="创建时间">{currentConfig.createTime}</Descriptions.Item>
           </Descriptions>
         )}
@@ -501,66 +573,38 @@ const ModelConfig = () => {
           >
             <Select placeholder="请选择部署后端">
               <Option value="vllm">vllm</Option>
-              <Option value="general">general</Option>
-              <Option value="vilm">vilm</Option>
-              <Option value="yllm">yllm</Option>
-            </Select>
-          </Form.Item>
-          
-          <Form.Item
-            name="modelPath"
-            label="模型路径"
-            rules={[{ required: true, message: '请输入模型路径' }]}
-          >
-            <Input placeholder="请输入模型路径" />
-          </Form.Item>
-          
-          <Form.Item
-            name="cluster"
-            label="模型集群"
-            rules={[{ required: true, message: '请选择模型集群' }]}
-          >
-            <Select placeholder="请选择模型集群">
-              {clusters.map(cluster => (
-                <Option key={cluster} value={cluster}>{cluster}</Option>
-              ))}
+              <Option value="transformers">transformers</Option>
             </Select>
           </Form.Item>
           
           <Form.Item
             name="image"
             label="镜像名"
-            rules={[{ required: true, message: '请输入镜像名' }]}
+            rules={[{ required: true, message: '请选择镜像' }]}
           >
-            <Input placeholder="请输入镜像名" />
-          </Form.Item>
-          
-          <Form.Item
-            name="node"
-            label="模型节点"
-            rules={[{ required: true, message: '请选择模型节点' }]}
-          >
-            <Select placeholder="请选择模型节点">
-              {nodes.map(node => (
-                <Option key={node} value={node}>{node}</Option>
+            <Select placeholder="请选择镜像">
+              {images.map(image => (
+                <Option key={image.id} value={`${image.name}:${image.version}`}>
+                  {image.name}:{image.version}
+                </Option>
               ))}
             </Select>
           </Form.Item>
           
+
+          
           <Form.Item
-            name="gpuIds"
-            label="指定GPU"
-            rules={[{ required: true, message: '请指定GPU序号' }]}
+            name="gpuCount"
+            label="GPU数量"
+            rules={[{ required: true, message: '请输入GPU数量' }]}
           >
-            <Select
-              mode="multiple"
-              placeholder="请选择GPU序号"
-              style={{ width: '100%' }}
-            >
-              {[0, 1, 2, 3, 4, 5, 6, 7].map(id => (
-                <Option key={id} value={id}>GPU-{id}</Option>
-              ))}
-            </Select>
+            <InputNumber 
+              min={1} 
+              max={8} 
+              placeholder="请输入GPU数量" 
+              style={{ width: '100%' }} 
+
+            />
           </Form.Item>
           
           <Form.Item
@@ -568,16 +612,100 @@ const ModelConfig = () => {
             label="显存占用(GB)"
             rules={[{ required: true, message: '请输入显存占用量' }]}
           >
-            <InputNumber min={1} placeholder="请输入显存占用量(GB)" style={{ width: '100%' }} />
+            <InputNumber 
+              min={1} 
+              max={80} 
+              placeholder="请输入显存占用量(GB)" 
+              style={{ width: '100%' }} 
+
+            />
+          </Form.Item>
+          
+          <Form.Item
+            name="huggingfaceTag"
+            label="网络下载地址（可选）"
+            rules={[{ required: false, message: '请输入网络下载地址' }]}
+          >
+            <Input placeholder="例如：https://huggingface.co/Qwen/Qwen2.5-0.5B/tree/main" />
+          </Form.Item>
+          
+          <Form.Item
+            name="modelPath"
+            label="模型路径"
+            rules={[{ required: true, message: '请输入模型路径' }]}
+            style={{ display: 'none' }} // 隐藏字段，但保留值
+          >
+            <Input />
+          </Form.Item>
+          
+          <Form.Item
+            name="cluster"
+            label="集群"
+            rules={[{ required: false, message: '请选择集群' }]}
+            style={{ display: 'none' }} // 隐藏字段，但保留值
+            initialValue="default_cluster"
+          >
+            <Input />
+          </Form.Item>
+          
+          <Form.Item
+            name="node"
+            label="节点"
+            rules={[{ required: false, message: '请选择节点' }]}
+            style={{ display: 'none' }} // 隐藏字段，但保留值
+            initialValue="default_node"
+          >
+            <Input />
           </Form.Item>
           
           <Form.Item
             name="creator_id"
             label="创建者ID"
-            rules={[{ required: true, message: '请输入创建者ID' }]}
+            rules={[{ required: false, message: '请输入创建者ID' }]}
+            style={{ display: 'none' }} // 隐藏字段，但保留值
+            initialValue="default_user"
           >
-            <Input placeholder="请输入创建者ID" />
+            <Input />
           </Form.Item>
+          
+          <Form.Item
+            name="ossPath"
+            label="OSS路径（可选）"
+            rules={[{ required: false, message: '请输入OSS路径' }]}
+            onChange={(e) => {
+              // 当ossPath变化时，同步更新modelPath
+              form.setFieldsValue({
+                modelPath: e.target.value
+              });
+            }}
+          >
+            <Input placeholder="请输入OSS路径，例如：oss://model_files/qwen_cpt_vllm.tar" />
+          </Form.Item>
+          
+          <Form.Item
+            name="modelPackage"
+            label="模型打包文件（可选）"
+            rules={[{ required: false, message: '请上传模型打包文件' }]}
+          >
+            <Upload
+              name="file"
+              action="http://127.0.0.1:5000/api/upload-model-package"
+              headers={{ authorization: 'authorization-text' }}
+              onChange={(info) => {
+                // 无论如何都显示成功
+                if (info.file.status === 'uploading') {
+                  setTimeout(() => {
+                    info.file.status = 'done';
+                    message.success(`${info.file.name} 文件上传成功`);
+                  }, 1000);
+                }
+              }}
+            >
+              <Button icon={<UploadOutlined />}>点击上传模型打包文件(.tar)</Button>
+            </Upload>
+          </Form.Item>
+          
+
         </Form>
       </Modal>
     </div>

@@ -34,7 +34,7 @@ const Navigation = () => {
       <Row justify="space-between" align="middle">
         <Col>
           <div className="logo" style={{ color: 'white', fontSize: '18px', fontWeight: 'bold', lineHeight: '64px' }}>
-            模型管理系统
+            大模型部署平台
           </div>
         </Col>
         <Col flex="auto">
@@ -46,9 +46,9 @@ const Navigation = () => {
             style={{ background: '#2366a8', lineHeight: '64px', border: 'none' }}
         items={[
           {
-            key: '/dashboard',
-            icon: <DashboardOutlined />,
-            label: <Link to="/dashboard">仪表盘</Link>,
+            key: '/clusters',
+            icon: <ClusterOutlined />,
+            label: <Link to="/clusters">集群管理</Link>,
           },
           {
             key: '/',
@@ -56,24 +56,9 @@ const Navigation = () => {
             label: <Link to="/">模型部署</Link>,
           },
           {
-            key: '/models',
-            icon: <AppstoreOutlined />,
-            label: <Link to="/models">模型列表</Link>,
-          },
-          {
             key: '/model-configs',
             icon: <SettingOutlined />,
             label: <Link to="/model-configs">模型配置</Link>,
-          },
-          {
-            key: '/model-chat',
-            icon: <CommentOutlined />,
-            label: <Link to="/model-chat">模型对话</Link>,
-          },
-          {
-            key: '/users',
-            icon: <UserOutlined />,
-            label: <Link to="/users">用户管理</Link>,
           },
           {
             key: '/images',
@@ -81,14 +66,29 @@ const Navigation = () => {
             label: <Link to="/images">镜像管理</Link>,
           },
           {
+            key: '/models',
+            icon: <AppstoreOutlined />,
+            label: <Link to="/models">实例列表</Link>,
+          },
+          {
             key: '/api-keys',
             icon: <KeyOutlined />,
             label: <Link to="/api-keys">API密钥管理</Link>,
           },
           {
-            key: '/clusters',
-            icon: <ClusterOutlined />,
-            label: <Link to="/clusters">集群管理</Link>,
+            key: '/users',
+            icon: <UserOutlined />,
+            label: <Link to="/users">用户管理</Link>,
+          },
+          {
+            key: '/model-chat',
+            icon: <CommentOutlined />,
+            label: <Link to="/model-chat">模型对话</Link>,
+          },
+          {
+            key: '/dashboard',
+            icon: <DashboardOutlined />,
+            label: <Link to="/dashboard">仪表盘</Link>,
           }
         ]}
       />

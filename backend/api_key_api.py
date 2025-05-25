@@ -8,22 +8,39 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 api_key_api = Blueprint('api_key_api', __name__)
 
-# 导入密钥
-from auth_api import SECRET_KEY, users
+# 导入密钥和MongoDB连接
+from auth_api import SECRET_KEY
+from pymongo import MongoClient
 
-# API密钥数据存储
-api_keys = [
-    {
-        "id": "key1",
-        "name": "测试API密钥",
-        "key": "sk-test-12345678901234567890123456789012",
-        "scope": "只读",
-        "user_id": "1",
-        "created_at": "2025-05-01T10:00:00Z",
-        "expires_at": None,
-        "last_used": None
-    }
-]
+# 连接MongoDB
+try:
+    client = MongoClient('mongodb://root:650803@localhost:27017/')
+    db = client['model_deploy_db']
+    users_collection = db['users']
+    api_keys_collection = db['api_keys']
+    print("MongoDB API密钥集合连接成功")
+except Exception as e:
+    print(f"MongoDB连接失败: {e}")
+
+# 初始化API密钥数据
+try:
+    # 检查API密钥集合是否为空，如果为空则初始化数据
+    if api_keys_collection.count_documents({}) == 0:
+        initial_api_keys = [
+            {
+                "id": "key1",
+                "name": "测试API密钥",
+                "key": "sk-test-12345678901234567890123456789012",
+                "scope": "只读",
+                "user_id": "1",
+                "created_at": "2025-05-01T10:00:00Z",
+                "last_used": None
+            }
+        ]
+        api_keys_collection.insert_many(initial_api_keys)
+        print("API密钥数据初始化成功")
+except Exception as e:
+    print(f"API密钥数据初始化失败: {e}")
 
 # 生成API密钥
 def generate_api_key():

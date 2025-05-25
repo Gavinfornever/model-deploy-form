@@ -70,45 +70,255 @@ CLUSTER_CONTROLLER_PATH = os.path.join(
 
 def save_cluster_to_redis(cluster: ClusterInfo):
     """将集群信息保存到Redis"""
-    # 将集群对象转换为字典
-    cluster_dict = {
-        "id": cluster.id,
-        "name": cluster.name,
-        "adapter_type": cluster.adapter_type,
-        "config": cluster.config,
-        "nodes": []
-    }
-    
-    # 添加节点信息
-    for node in cluster.nodes:
-        node_dict = {
-            "id": node.id,
-            "name": node.name,
-            "ip": node.ip,
-            "port": node.port,
-            "status": node.status,
-            "last_heartbeat": node.last_heartbeat,
-            "metadata": node.metadata,
-            "gpus": []
+    try:
+        # 将集群对象转换为字典
+        cluster_dict = {
+            "id": cluster.id,
+            "name": cluster.name,
+            "adapter_type": cluster.adapter_type,
+            "config": cluster.config,
+            "nodes": []
         }
         
-        # 添加GPU信息
-        for gpu in node.gpus:
-            gpu_dict = {
-                "id": gpu.id,
-                "name": gpu.name,
-                "memory_total": gpu.memory_total,
-                "gpu_type": gpu.gpu_type.value,
-                "compute_capability": gpu.compute_capability,
-                "extra_info": gpu.extra_info
+        # 添加节点信息
+        for node in cluster.nodes:
+            node_dict = {
+                "id": node.id,
+                "name": node.name,
+                "ip": node.ip,
+                "port": node.port,
+                "status": node.status,
+                "last_heartbeat": node.last_heartbeat,
+                "metadata": node.metadata,
+                "gpus": []
             }
-            node_dict["gpus"].append(gpu_dict)
             
-        cluster_dict["nodes"].append(node_dict)
+            # 添加GPU信息
+            for gpu in node.gpus:
+                gpu_dict = {
+                    "id": gpu.id,
+                    "name": gpu.name,
+                    "memory_total": gpu.memory_total,
+                    "gpu_type": gpu.gpu_type.value,
+                    "compute_capability": gpu.compute_capability,
+                    "extra_info": gpu.extra_info
+                }
+                node_dict["gpus"].append(gpu_dict)
+            
+            cluster_dict["nodes"].append(node_dict)
+        
+        # 保存到Redis
+        redis_client.hset("clusters", cluster.id, json.dumps(cluster_dict))
+        logger.info(f"Saved cluster {cluster.name} to Redis")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save cluster to Redis: {e}")
+        return False
+
+# 将模型实例信息保存到Redis
+def save_model_instances_to_redis(cluster_id: str, model_instances: List[Dict]):
+    """将模型实例信息保存到Redis，并建立从属关系"""
+    try:
+        # 获取集群信息
+        cluster_info = None
+        cluster_json = redis_client.hget("clusters", cluster_id)
+        if cluster_json:
+            cluster_info = json.loads(cluster_json)
+        
+        # 保存到Redis
+        redis_client.hset("model_instances", cluster_id, json.dumps(model_instances))
+        
+        # 将每个模型实例也单独存储
+        online_count = 0
+        offline_count = 0
+        
+        for instance in model_instances:
+            model_id = instance.get("model_id")
+            if model_id:
+                # 检查模型实例状态
+                status = instance.get("status", "unknown")
+                
+                # 添加从属关系信息
+                if "cluster_id" not in instance:
+                    instance["cluster_id"] = cluster_id
+                
+                if cluster_info and "name" in cluster_info and "cluster_name" not in instance:
+                    instance["cluster_name"] = cluster_info["name"]
+                
+                # 尝试确定模型实例运行在哪个节点上
+                if "node_id" not in instance and "endpoint" in instance:
+                    # 从端点URL提取主机信息
+                    parts = instance["endpoint"].split('/')
+                    if len(parts) >= 3:
+                        host = parts[2].split(':')[0]  # 提取主机名，如 'localhost'
+                        
+                        # 如果有集群信息，尝试匹配节点
+                        if cluster_info and "nodes" in cluster_info:
+                            for node in cluster_info["nodes"]:
+                                node_ip = node.get("ip")
+                                node_name = node.get("name")
+                                
+                                # 如果主机名或IP匹配，则将该节点作为模型实例的运行节点
+                                if (host == node_ip or host == 'localhost' and node_ip == '127.0.0.1' or 
+                                    host in node_name or node_name in host):
+                                    instance["node_id"] = node.get("id")
+                                    instance["node_name"] = node_name
+                                    # 将模型实例与节点关联
+                                    redis_client.sadd(f"node:{node.get('id')}:models", model_id)
+                                    break
+                
+                if status == "online":
+                    # 在线模型实例正常存储
+                    redis_client.hset("models", model_id, json.dumps(instance))
+                    redis_client.sadd(f"cluster:{cluster_id}:models", model_id)
+                    # 将模型实例添加到在线模型列表
+                    redis_client.sadd("online_models", model_id)
+                    # 如果在离线列表中，则移除
+                    redis_client.srem("offline_models", model_id)
+                    online_count += 1
+                elif status == "offline":
+                    # 对于离线模型实例，我们将其标记为离线并更新到Redis
+                    # 检查Redis中是否已存在该模型实例
+                    existing_json = redis_client.hget("models", model_id)
+                    if existing_json:
+                        # 如果已存在，更新其状态为离线
+                        existing = json.loads(existing_json)
+                        existing["status"] = "offline"
+                        existing["offline_at"] = time.time()
+                        # 保留从属关系信息
+                        if "cluster_id" in instance:
+                            existing["cluster_id"] = instance["cluster_id"]
+                        if "cluster_name" in instance:
+                            existing["cluster_name"] = instance["cluster_name"]
+                        if "node_id" in instance:
+                            existing["node_id"] = instance["node_id"]
+                        if "node_name" in instance:
+                            existing["node_name"] = instance["node_name"]
+                            
+                        redis_client.hset("models", model_id, json.dumps(existing))
+                        logger.info(f"Marked model instance as offline in Redis: {existing.get('model_name', 'unknown')} (ID: {model_id})")
+                    else:
+                        # 如果不存在，添加离线时间戳
+                        instance["offline_at"] = time.time()
+                        redis_client.hset("models", model_id, json.dumps(instance))
+                    
+                    # 将模型实例添加到离线模型列表
+                    redis_client.sadd("offline_models", model_id)
+                    # 如果在在线列表中，则移除
+                    redis_client.srem("online_models", model_id)
+                    offline_count += 1
+        
+        logger.info(f"Saved model instances to Redis for cluster {cluster_id}: {online_count} online, {offline_count} offline")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save model instances to Redis: {e}")
+        return False
+
+# 从Redis加载模型实例信息
+def load_model_instances_from_redis(cluster_id: str = None, node_id: str = None, include_offline: bool = False):
+    """从Redis加载模型实例信息
     
-    # 保存到Redis
-    redis_client.hset("clusters", cluster.id, json.dumps(cluster_dict))
-    logger.info(f"Saved cluster {cluster.name} to Redis")
+    Args:
+        cluster_id: 集群ID，如果指定则只返回该集群的模型实例
+        node_id: 节点ID，如果指定则只返回该节点上的模型实例
+        include_offline: 是否包含离线模型实例，默认不包含
+    """
+    try:
+        # 根据不同的查询条件选择查询方式
+        if cluster_id and node_id:
+            # 查询特定集群的特定节点上的模型实例
+            model_ids = redis_client.smembers(f"node:{node_id}:models")
+            if not model_ids:
+                return []
+                
+            # 获取所有模型实例
+            instances = []
+            for model_id in model_ids:
+                model_json = redis_client.hget("models", model_id)
+                if model_json:
+                    model = json.loads(model_json)
+                    # 检查是否属于指定集群
+                    if model.get("cluster_id") == cluster_id:
+                        # 如果不包含离线实例，跳过状态为offline的实例
+                        if not include_offline and model.get("status") == "offline":
+                            continue
+                        instances.append(model)
+            return instances
+            
+        elif node_id:
+            # 查询特定节点上的模型实例
+            model_ids = redis_client.smembers(f"node:{node_id}:models")
+            if not model_ids:
+                return []
+                
+            # 获取所有模型实例
+            instances = []
+            for model_id in model_ids:
+                model_json = redis_client.hget("models", model_id)
+                if model_json:
+                    model = json.loads(model_json)
+                    # 如果不包含离线实例，跳过状态为offline的实例
+                    if not include_offline and model.get("status") == "offline":
+                        continue
+                    instances.append(model)
+            return instances
+            
+        elif cluster_id:
+            # 查询特定集群的模型实例
+            # 优先使用集群与模型的关联关系
+            model_ids = redis_client.smembers(f"cluster:{cluster_id}:models")
+            if model_ids:
+                # 获取所有模型实例
+                instances = []
+                for model_id in model_ids:
+                    model_json = redis_client.hget("models", model_id)
+                    if model_json:
+                        model = json.loads(model_json)
+                        # 如果不包含离线实例，跳过状态为offline的实例
+                        if not include_offline and model.get("status") == "offline":
+                            continue
+                        instances.append(model)
+                return instances
+            else:
+                # 如果没有关联关系，则使用原始方式
+                model_instances_json = redis_client.hget("model_instances", cluster_id)
+                if model_instances_json:
+                    instances = json.loads(model_instances_json)
+                    # 如果不包含离线实例，过滤掉状态为offline的实例
+                    if not include_offline:
+                        instances = [instance for instance in instances if instance.get("status") != "offline"]
+                    return instances
+                return []
+        else:
+            # 加载所有模型实例
+            # 根据状态选择使用不同的集合
+            if include_offline:
+                # 包含所有模型实例
+                all_models = {}
+                models_data = redis_client.hgetall("models")
+                
+                for model_id, model_json in models_data.items():
+                    model = json.loads(model_json)
+                    all_models[model_id] = model
+                
+                return list(all_models.values())
+            else:
+                # 只包含在线模型实例
+                online_model_ids = redis_client.smembers("online_models")
+                if not online_model_ids:
+                    return []
+                    
+                # 获取所有在线模型实例
+                instances = []
+                for model_id in online_model_ids:
+                    model_json = redis_client.hget("models", model_id)
+                    if model_json:
+                        model = json.loads(model_json)
+                        instances.append(model)
+                return instances
+    except Exception as e:
+        logger.error(f"Failed to load model instances from Redis: {e}")
+        return []
 
 def load_clusters_from_redis():
     """从Redis加载所有集群信息"""
@@ -233,12 +443,41 @@ def deploy_cluster_controller(cluster_info: Dict[str, Any]):
                 sys.modules["cluster_controller"] = cluster_controller
                 spec.loader.exec_module(cluster_controller)
                 
+                # 创建日志目录
+                log_dir = "/tmp/cluster_logs"
+                os.makedirs(log_dir, exist_ok=True)
+                log_path = f"{log_dir}/cluster_controller.log"
+                
+                # 确保日志目录有正确的权限
+                os.chmod(log_dir, 0o755)
+                
+                # 如果日志文件已存在，清空它
+                if os.path.exists(log_path):
+                    with open(log_path, 'w') as f:
+                        f.write(f"Log file cleared at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                
+                logger.info(f"Cluster controller will log to: {log_path}")
+                
                 # 启动一个线程来运行集群控制器
                 def run_controller():
                     # 设置命令行参数
-                    sys.argv = [CLUSTER_CONTROLLER_PATH, "--config", config_path]
+                    sys.argv = [CLUSTER_CONTROLLER_PATH, "--config", config_path, "--log-path", log_path, "--port", "5002"]
+                    cmd_str = ' '.join(sys.argv)
+                    logger.info(f"Starting cluster controller with command: {cmd_str}")
+                    
+                    # 在日志文件中记录启动命令
+                    with open(log_path, 'a') as f:
+                        f.write(f"Starting cluster controller at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                        f.write(f"Command: {cmd_str}\n")
+                    
                     # 运行主函数
-                    cluster_controller.main()
+                    try:
+                        cluster_controller.main()
+                    except Exception as e:
+                        error_msg = f"Error in cluster controller: {e}"
+                        logger.error(error_msg)
+                        with open(log_path, 'a') as f:
+                            f.write(f"{error_msg}\n")
                 
                 # 启动线程
                 thread = threading.Thread(target=run_controller)
@@ -751,11 +990,270 @@ def register_node():
             "message": str(e)
         }), 500
 
+# ====================== 模型实例轮询 ======================
+
+def poll_cluster_model_instances():
+    """定时轮询集群控制器的模型实例信息"""
+    import requests
+    while True:
+        try:
+            # 加载所有集群
+            clusters = load_clusters_from_redis()
+            
+            for cluster in clusters:
+                cluster_id = cluster.id
+                # 查找主节点
+                master_node = None
+                for node in cluster.nodes:
+                    if node.metadata.get("node_type") == "master":
+                        master_node = node
+                        break
+                
+                if not master_node:
+                    logger.warning(f"No master node found for cluster {cluster.name} ({cluster_id})")
+                    continue
+                
+                # 构建集群控制器URL
+                # 默认端口为5002，但如果在本地运行则使用当前已知的端口
+                port = 5002
+                if master_node.ip in ['127.0.0.1', 'localhost']:
+                    # 如果是本地运行，直接使用已知的集群控制器URL
+                    cluster_controller_url = "http://localhost:5002"
+                else:
+                    cluster_controller_url = f"http://{master_node.ip}:{port}"
+                
+                model_instances_url = f"{cluster_controller_url}/api/model_instances_info"
+                logger.debug(f"Polling model instances from: {model_instances_url}")
+                
+                try:
+                    # 轮询集群控制器的模型实例信息
+                    response = requests.get(model_instances_url, timeout=5)
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        if data.get("status") == "success" and "model_instances" in data:
+                            # 更新模型实例信息到Redis
+                            model_instances = data["model_instances"]
+                            save_model_instances_to_redis(cluster_id, model_instances)
+                            logger.info(f"Updated {len(model_instances)} model instances for cluster {cluster.name}")
+                    else:
+                        logger.warning(f"Failed to poll model instances from cluster {cluster.name}: {response.status_code}")
+                except requests.RequestException as e:
+                    logger.warning(f"Error polling model instances from cluster {cluster.name}: {e}")
+            
+            # 每5秒轮询一次
+            time.sleep(5)
+        except Exception as e:
+            logger.error(f"Error in model instances polling thread: {e}")
+            time.sleep(10)  # 出错后等待10秒再重试
+
+# ====================== API路由扩展 ======================
+
+@app.route('/api/deploy', methods=['POST'])
+def deploy_model():
+    """模型部署API - 接收前端部署请求，调度GPU资源，并转发给集群控制器"""
+    try:
+        # 获取部署请求数据
+        data = request.json
+        logger.info(f"接收到部署请求: {data}")
+        
+        # 验证必要字段
+        required_fields = ['modelName', 'version', 'backend', 'image', 'cluster', 'node', 'gpuCount', 'memoryUsage', 'modelPath']
+        for field in required_fields:
+            if field not in data or not data[field]:
+                return jsonify({
+                    'status': 'error', 
+                    'message': f'缺少必要字段: {field}'
+                }), 400
+        
+        # 获取集群信息
+        cluster_id = None
+        cluster_name = data['cluster']
+        clusters = load_clusters_from_redis()
+        
+        # 查找对应的集群
+        target_cluster = None
+        for cluster in clusters:
+            if cluster.name == cluster_name:
+                target_cluster = cluster
+                cluster_id = cluster.id
+                break
+        
+        if not target_cluster:
+            return jsonify({
+                'status': 'error',
+                'message': f'找不到集群: {cluster_name}'
+            }), 404
+        
+        # 获取集群控制器URL
+        # 如果没有指定集群控制器URL，使用默认的
+        cluster_controller_url = None
+        if hasattr(target_cluster, 'config') and isinstance(target_cluster.config, dict):
+            cluster_controller_url = target_cluster.config.get('controller_url')
+            
+        if not cluster_controller_url and target_cluster.nodes and len(target_cluster.nodes) > 0:
+            # 使用第一个节点的IP
+            node_ip = target_cluster.nodes[0].ip if hasattr(target_cluster.nodes[0], 'ip') else 'localhost'
+            # 使用正确的集群控制器端口（5002而不是5010）
+            cluster_controller_url = f"http://{node_ip}:5002"
+        
+        # 准备要转发给集群控制器的数据
+        deploy_data = {
+            'model_name': data['modelPath'],
+            'model_type': data['backend'],
+            'gpu_count': int(data['gpuCount']),
+            'memory_required': int(data['memoryUsage']) * 1024,  # 转换为MB
+            'node_id': data['node'],
+            'deploy_command': data.get('deployCommand', None)
+        }
+        
+        # 构建部署命令（如果没有提供）
+        if not deploy_data['deploy_command']:
+            # 生成一个不太可能冲突的端口，避开已经使用的端口
+            port = 6000 + int(time.time()) % 1000  # 使用6000+的端口范围
+            deploy_data['deploy_command'] = f"python backend/start_qwen_model.py --model-name \"{data['modelPath']}\" --port {port} --cluster-controller \"{cluster_controller_url}\" --gpu-count {data['gpuCount']}"
+        
+        logger.info(f"转发部署请求到集群控制器: {cluster_controller_url}/api/deploy, 数据: {deploy_data}")
+        
+        # 转发请求到集群控制器
+        import requests
+        response = requests.post(
+            f"{cluster_controller_url}/api/deploy",
+            json=deploy_data,
+            timeout=30
+        )
+        
+        # 检查集群控制器响应
+        if response.status_code == 200:
+            result = response.json()
+            # 创建新的模型部署实例
+            deployment_id = str(uuid.uuid4())
+            new_deployment = {
+                'id': deployment_id,
+                'modelName': data['modelName'],
+                'version': data['version'],
+                'backend': data['backend'],
+                'image': data['image'],
+                'cluster': data['cluster'],
+                'node': data['node'],
+                'gpuCount': int(data['gpuCount']),
+                'memoryUsage': int(data['memoryUsage']),
+                'modelPath': data['modelPath'],
+                'description': data.get('description', ''),
+                'creator_id': data.get('creator_id', 'anonymous'),
+                'deployTime': time.strftime('%Y-%m-%d %H:%M:%S'),
+                'status': 'pending',
+                'task_id': result.get('task_id'),
+                'cluster_id': cluster_id
+            }
+            
+            # 将部署信息保存到Redis
+            deployment_key = f"deployment:{deployment_id}"
+            redis_client.hmset(deployment_key, {k: json.dumps(v) for k, v in new_deployment.items()})
+            redis_client.sadd("deployments", deployment_id)
+            redis_client.sadd(f"cluster:{cluster_id}:deployments", deployment_id)
+            
+            return jsonify({
+                'status': 'success',
+                'message': '模型部署请求已提交',
+                'data': {
+                    'deployment_id': deployment_id,
+                    'task_id': result.get('task_id'),
+                    'gpu_id': result.get('gpu_id')
+                }
+            })
+        else:
+            error_msg = response.json().get('message', '集群控制器响应异常')
+            return jsonify({
+                'status': 'error',
+                'message': f'部署失败: {error_msg}'
+            }), response.status_code
+    except Exception as e:
+        logger.error(f"处理部署请求时出错: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'处理部署请求时出错: {str(e)}'
+        }), 500
+
+@app.route('/api/model-instances', methods=['GET'])
+def get_model_instances():
+    """获取所有模型实例"""
+    try:
+        # 检查是否包含离线实例
+        include_offline = request.args.get('include_offline', 'false').lower() == 'true'
+        
+        # 从 Redis 加载所有模型实例
+        model_instances = load_model_instances_from_redis(include_offline=include_offline)
+        
+        return jsonify({
+            "status": "success",
+            "model_instances": model_instances,
+            "count": len(model_instances),
+            "include_offline": include_offline
+        })
+    except Exception as e:
+        logger.error(f"Error getting model instances: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/clusters/<cluster_id>/model_instances', methods=['GET'])
+def get_cluster_model_instances(cluster_id):
+    """获取特定集群的模型实例"""
+    try:
+        # 检查是否包含离线实例
+        include_offline = request.args.get('include_offline', 'false').lower() == 'true'
+        # 检查是否指定节点ID
+        node_id = request.args.get('node_id', None)
+        
+        # 从 Redis 加载特定集群的模型实例
+        model_instances = load_model_instances_from_redis(cluster_id, node_id=node_id, include_offline=include_offline)
+        
+        return jsonify({
+            "status": "success",
+            "cluster_id": cluster_id,
+            "node_id": node_id,
+            "model_instances": model_instances,
+            "count": len(model_instances),
+            "include_offline": include_offline
+        })
+    except Exception as e:
+        logger.error(f"Error getting model instances for cluster {cluster_id}: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/nodes/<node_id>/model_instances', methods=['GET'])
+def get_node_model_instances(node_id):
+    """获取特定节点的模型实例"""
+    try:
+        # 检查是否包含离线实例
+        include_offline = request.args.get('include_offline', 'false').lower() == 'true'
+        # 检查是否指定集群ID
+        cluster_id = request.args.get('cluster_id', None)
+        
+        # 从 Redis 加载特定节点的模型实例
+        model_instances = load_model_instances_from_redis(cluster_id=cluster_id, node_id=node_id, include_offline=include_offline)
+        
+        return jsonify({
+            "status": "success",
+            "node_id": node_id,
+            "cluster_id": cluster_id,
+            "model_instances": model_instances,
+            "count": len(model_instances),
+            "include_offline": include_offline
+        })
+    except Exception as e:
+        logger.error(f"Error getting model instances for node {node_id}: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 # ====================== 主函数 ======================
 
 if __name__ == "__main__":
     # 从环境变量获取端口
-    port = int(os.environ.get('PORT', 5001))
+    port = int(os.environ.get("PORT", 5001))
     
-    # 启动Flask应用
+    # 启动模型实例轮询线程
+    import threading
+    poll_thread = threading.Thread(target=poll_cluster_model_instances)
+    poll_thread.daemon = True
+    poll_thread.start()
+    logger.info("Started model instances polling thread")
+    
     app.run(host='0.0.0.0', port=port, debug=True)
