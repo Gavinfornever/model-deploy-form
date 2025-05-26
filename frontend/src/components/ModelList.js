@@ -152,12 +152,7 @@ const ModelList = () => {
       key: 'backend',
       width: 100,
     },
-    {
-      title: '服务器',
-      dataIndex: 'server',
-      key: 'server',
-      width: 120,
-    },
+
     {
       title: '端口',
       dataIndex: 'port',
@@ -174,7 +169,19 @@ const ModelList = () => {
       title: '集群',
       dataIndex: 'cluster',
       key: 'cluster',
-      width: 160,
+      width: 100,
+    },
+    {
+      title: '节点',
+      dataIndex: 'node',
+      key: 'node',
+      width: 100,
+    },
+    {
+      title: '创建者',
+      dataIndex: 'creator_name',
+      key: 'creator_name',
+      width: 80,
     },
     {
       title: '状态',

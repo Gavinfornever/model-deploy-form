@@ -93,127 +93,139 @@ model_instances = [
         "gpu": "0",
         "status": "running",
         "cluster": "local",
-        "modelPath": "/models/qwen2.5-0.5b"
+        "modelPath": "/models/qwen2.5-0.5b",
+        "node": "node1",
+        "creator_name": "王高3"
     },
     {
         "id": "m1",
         "modelId": "qwen_cpt_vilm",
         "modelName": "qwen_cpt_vllim",
         "backend": "vllim",
-        "server": "10.31.29.02",
         "port": "21001",
         "gpu": "4",
         "status": "running",
         "cluster": "muxi",
-        "modelPath": "/mnt/share/models/dataset_E_xy_14b"
+        "modelPath": "/mnt/share/models/dataset_E_xy_14b",
+        "node": "wanggaodeMacBook-Pro.local",
+        "creator_name": "王高3"
     },
     {
         "id": "m2",
         "modelId": "selfmodel_vllm",
         "modelName": "selfmodel_vllm",
         "backend": "vllm",
-        "server": "47.102.116.12",
         "port": "21001",
         "gpu": "0,1",
         "status": "stopped",
         "cluster": "A10服务器",
-        "modelPath": "/mnt/share/models/xy.70b 30b fini.."
+        "modelPath": "/mnt/share/models/xy.70b 30b fini..",
+        "node": "node3",
+        "creator_name": "王高3"
     },
     {
         "id": "m3",
-        "modelId": "baai sim general",
-        "modelName": "baai sim_general",
-        "backend": "general",
-        "server": "10.31.29.19",
+        "modelId": "baai sim transformers",
+        "modelName": "baai sim_transformers",
+        "backend": "transformers",
         "port": "21010",
         "gpu": "3",
         "status": "running",
         "cluster": "muxi",
-        "modelPath": "/mnt/share/models/tzy/BAAl-bge-ba.."
+        "modelPath": "/mnt/share/models/tzy/BAAl-bge-ba..",
+        "node": "wanggaodeMacBook-Pro.local",
+        "creator_name": "王高3"
     },
     {
         "id": "m4",
-        "modelId": "baai sim. general",
-        "modelName": "baai sim general",
-        "backend": "general",
-        "server": "10.31.29.19",
+        "modelId": "baai sim. transformers",
+        "modelName": "baai sim transformers",
+        "backend": "transformers",
         "port": "21011",
         "gpu": "0,1",
         "status": "running",
         "cluster": "A10服务器",
-        "modelPath": "/mnt/share/models/tzy/BAAl-bge-ba.."
+        "modelPath": "/mnt/share/models/tzy/BAAl-bge-ba..",
+        "node": "node5",
+        "creator_name": "王高3"
     },
     {
         "id": "m5",
-        "modelId": "baai sim_general",
-        "modelName": "baai sim_general",
-        "backend": "general",
-        "server": "10.31.29.19",
+        "modelId": "baai sim_transformers",
+        "modelName": "baai sim_transformers",
+        "backend": "transformers",
         "port": "21012",
         "gpu": "2",
         "status": "running",
         "cluster": "muxi",
-        "modelPath": "/mnt/share/models/tzy/BAAl-bge-ba."
+        "modelPath": "/mnt/share/models/tzy/BAAl-bge-ba.",
+        "node": "node6",
+        "creator_name": "王高3"
     },
     {
         "id": "m6",
-        "modelId": "baai_sim_ general",
-        "modelName": "baai_sim_general",
-        "backend": "general",
-        "server": "10.31.29.19",
+        "modelId": "baai_sim_ transformers",
+        "modelName": "baai_sim_transformers",
+        "backend": "transformers",
         "port": "21013",
         "gpu": "8",
         "status": "stopped",
         "cluster": "A10服务器",
-        "modelPath": "/mnt/share/models/tzy/BAAl-bge-ba."
+        "modelPath": "/mnt/share/models/tzy/BAAl-bge-ba.",
+        "node": "wanggaodeMacBook-Pro.local",
+        "creator_name": "王高3"
     },
     {
         "id": "m7",
         "modelId": "qwen_comment vllm",
         "modelName": "qwen_comment vllm",
         "backend": "vllm",
-        "server": "10.31.29.15",
         "port": "21004",
         "gpu": "5",
         "status": "running",
         "cluster": "muxi",
-        "modelPath": "/mnt/share/models/comment v3/"
+        "modelPath": "/mnt/share/models/comment v3/",
+        "node": "node2",
+        "creator_name": "王高3"
     },
     {
         "id": "m8",
         "modelId": "qwen datasetE yllm",
         "modelName": "qwen_datasetE vllm",
         "backend": "yllm",
-        "server": "10.31.29.15",
         "port": "21005",
         "gpu": "6",
         "status": "running",
         "cluster": "A10服务器",
-        "modelPath": "/mnt/share/models/dataset Exy.14b"
+        "modelPath": "/mnt/share/models/dataset Exy.14b",
+        "node": "node3",
+        "creator_name": "王高3"
     },
     {
         "id": "m9",
         "modelId": "qwen14b__vllm",
         "modelName": "qwen14b_vllm",
         "backend": "vilm",
-        "server": "10.31.29.15",
         "port": "21003",
         "gpu": "0",
         "status": "stopped",
         "cluster": "muxi",
-        "modelPath": "/mnt/share/models/tzy/Qwen-14B-c."
+        "modelPath": "/mnt/share/models/tzy/Qwen-14B-c.",
+        "node": "node4",
+        "creator_name": "王高3"
     },
     {
         "id": "m10",
-        "modelId": "embedding_generalgeneral",
-        "modelName": "embedding_general",
-        "backend": "general",
-        "server": "10.31.29.15",
+        "modelId": "embedding_transformers",
+        "modelName": "embedding_transformers",
+        "backend": "transformers",
         "port": "21006",
         "gpu": "7",
         "status": "running",
         "cluster": "A10服务器",
-        "modelPath": "/mnt/share/models/tzy/paraphrase-."
+        "modelPath": "/mnt/share/models/tzy/paraphrase-.",
+        "node": "wanggaodeMacBook-Pro.local",
+        "creator_name": "王高3"
     }
 ]
 

@@ -24,8 +24,8 @@ try:
                 "backend": "vllm",
                 "modelPath": "/mnt/models/llama-7b",
                 "ossPath": "oss://model_files/llama-7b.tar",
-                "cluster": "muxi集群",
-                "image": "vllm_image:v3",
+                "cluster_id": "muxi集群",
+                "image_id": "vllm_image:v3",
                 "node": "node1",
                 "gpuCount": 2,
                 "memoryUsage": 24,
@@ -38,8 +38,8 @@ try:
                 "backend": "general",
                 "modelPath": "/mnt/models/qwen-7b",
                 "ossPath": "oss://model_files/qwen-7b.tar",
-                "cluster": "A10集群",
-                "image": "huggingface_image:v2",
+                "cluster_id": "A10集群",
+                "image_id": "huggingface_image:v2",
                 "node": "node2",
                 "gpuCount": 1,
                 "memoryUsage": 16,
@@ -52,8 +52,8 @@ try:
                 "backend": "vilm",
                 "modelPath": "/mnt/models/chatglm-6b",
                 "ossPath": "oss://model_files/chatglm-6b.tar",
-                "cluster": "A100集群",
-                "image": "vilm_image:v1",
+                "cluster_id": "A100集群",
+                "image_id": "vilm_image:v1",
                 "node": "node3",
                 "gpuCount": 1,
                 "memoryUsage": 32,
@@ -76,8 +76,8 @@ _fallback_model_configs = [
         "backend": "vllm",
         "modelPath": "/mnt/models/llama-7b",
         "ossPath": "oss://model_files/llama-7b.tar",
-        "cluster": "muxi集群",
-        "image": "vllm_image:v3",
+        "cluster_id": "muxi集群",
+        "image_id": "vllm_image:v3",
         "node": "node1",
         "gpuCount": 2,
         "memoryUsage": 24,
@@ -90,8 +90,8 @@ _fallback_model_configs = [
         "backend": "general",
         "modelPath": "/mnt/models/qwen-7b",
         "ossPath": "oss://model_files/qwen-7b.tar",
-        "cluster": "A10集群",
-        "image": "huggingface_image:v2",
+        "cluster_id": "A10集群",
+        "image_id": "huggingface_image:v2",
         "node": "node2",
         "gpuCount": 1,
         "memoryUsage": 16,
@@ -104,8 +104,8 @@ _fallback_model_configs = [
         "backend": "vilm",
         "modelPath": "/mnt/models/chatglm-6b",
         "ossPath": "oss://model_files/chatglm-6b.tar",
-        "cluster": "A100集群",
-        "image": "vilm_image:v1",
+        "cluster_id": "A100集群",
+        "image_id": "vilm_image:v1",
         "node": "node3",
         "gpuCount": 1,
         "memoryUsage": 32,
@@ -141,10 +141,57 @@ def get_model_configs():
         configs = list(model_configs_collection.find(query).skip(skip).limit(page_size))
         total_count = model_configs_collection.count_documents(query)
         
-        # 移除MongoDB的_id字段
+        # 导入用户集合和镜像集合
+        from auth_api import users_collection
+        from image_api import images_collection
+        from bson import ObjectId
+        
+        # 移除MongoDB的_id字段，并添加创建者名称和镜像信息
         for config in configs:
             if '_id' in config:
                 del config['_id']
+                
+            # 移除model_id、cluster_id和node_id字段
+            if 'model_id' in config:
+                del config['model_id']
+            if 'cluster_id' in config:
+                del config['cluster_id']
+            if 'node_id' in config:
+                del config['node_id']
+                
+            # 添加创建者名称
+            creator_id = config.get('creator_id')
+            if creator_id:
+                # 查询用户集合获取用户名
+                try:
+                    user = users_collection.find_one({'_id': ObjectId(creator_id) if len(creator_id) == 24 else creator_id})
+                    if user:
+                        config['creator_name'] = user.get('username', '未知用户')
+                    else:
+                        # 如果找不到用户，使用ID作为名称
+                        config['creator_name'] = f'用户ID: {creator_id}'
+                except Exception as e:
+                    print(f"查询用户失败: {e}")
+                    config['creator_name'] = f'用户ID: {creator_id}'
+            else:
+                config['creator_name'] = '未知用户'
+                
+            # 添加镜像信息
+            image_id = config.get('image_id')
+            if image_id:
+                # 查询镜像集合获取镜像信息
+                try:
+                    image = images_collection.find_one({'id': image_id})
+                    if image:
+                        config['image_name'] = f"{image.get('name')}:{image.get('version')}"
+                    else:
+                        # 如果找不到镜像，使用ID作为名称
+                        config['image_name'] = image_id
+                except Exception as e:
+                    print(f"查询镜像失败: {e}")
+                    config['image_name'] = image_id
+            else:
+                config['image_name'] = '未知镜像'
         
         return jsonify({
             "status": "success",
@@ -179,6 +226,53 @@ def get_model_config(id):
             # 移除MongoDB的_id字段
             if '_id' in config:
                 del config['_id']
+            
+            # 移除model_id、cluster_id和node_id字段
+            if 'model_id' in config:
+                del config['model_id']
+            if 'cluster_id' in config:
+                del config['cluster_id']
+            if 'node_id' in config:
+                del config['node_id']
+            
+            # 导入用户集合和镜像集合
+            from auth_api import users_collection
+            from image_api import images_collection
+            from bson import ObjectId
+            
+            # 添加创建者名称
+            creator_id = config.get('creator_id')
+            if creator_id:
+                # 查询用户集合获取用户名
+                try:
+                    user = users_collection.find_one({'_id': ObjectId(creator_id) if len(creator_id) == 24 else creator_id})
+                    if user:
+                        config['creator_name'] = user.get('username', '未知用户')
+                    else:
+                        # 如果找不到用户，使用ID作为名称
+                        config['creator_name'] = f'用户ID: {creator_id}'
+                except Exception as e:
+                    print(f"查询用户失败: {e}")
+                    config['creator_name'] = f'用户ID: {creator_id}'
+            else:
+                config['creator_name'] = '未知用户'
+                
+            # 添加镜像信息
+            image_id = config.get('image_id')
+            if image_id:
+                # 查询镜像集合获取镜像信息
+                try:
+                    image = images_collection.find_one({'id': image_id})
+                    if image:
+                        config['image_name'] = f"{image.get('name')}:{image.get('version')}"
+                    else:
+                        # 如果找不到镜像，使用ID作为名称
+                        config['image_name'] = image_id
+                except Exception as e:
+                    print(f"查询镜像失败: {e}")
+                    config['image_name'] = image_id
+            else:
+                config['image_name'] = '未知镜像'
                 
             return jsonify({
                 "status": "success",
@@ -210,7 +304,7 @@ def create_model_config():
         data = request.json
         
         # 验证必要字段
-        required_fields = ['modelName', 'backend', 'image', 'gpuCount', 'memoryUsage', 'modelPath']
+        required_fields = ['modelName', 'backend', 'image_id', 'gpuCount', 'memoryUsage', 'modelPath']
         for field in required_fields:
             if field not in data:
                 return jsonify({"status": "error", "message": f"缺少必要字段: {field}"}), 400
@@ -233,7 +327,8 @@ def create_model_config():
             "backend": data.get("backend"),
             "modelPath": data.get("modelPath"),
             "ossPath": data.get("ossPath", data.get("modelPath", "")),
-            "image": data.get("image"),
+            "image_id": data.get("image_id"),
+            "cluster_id": data.get("cluster_id", ""),
             "node": data.get("node", ""),
             "gpuCount": data.get("gpuCount"),
             "memoryUsage": data.get("memoryUsage"),
@@ -259,7 +354,8 @@ def create_model_config():
             "backend": data.get("backend"),
             "modelPath": data.get("modelPath"),
             "ossPath": data.get("ossPath", data.get("modelPath", "")),
-            "image": data.get("image"),
+            "image_id": data.get("image_id"),
+            "cluster_id": data.get("cluster_id", ""),
             "node": data.get("node", ""),
             "gpuCount": data.get("gpuCount"),
             "memoryUsage": data.get("memoryUsage"),

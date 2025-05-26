@@ -187,14 +187,39 @@ const ModelDeployForm = () => {
     setSelectedConfig(config);
     
     if (config) {
-      // 自动填充表单，但不填充集群和节点
-      form.setFieldsValue({
+      // 自动填充表单，包括镜像信息
+      const formValues = {
         modelName: config.modelName,
         backend: config.backend,
         modelPath: config.ossPath || 'oss://model_files/default.tar',
         gpuCount: config.gpuCount || 1, // 直接使用gpuCount，如果没有则默认为1
         memoryUsage: config.memoryUsage
-      });
+      };
+      
+      // 如果模型配置中有镜像信息，也填充镜像字段
+      // 注意：后端返回的是'image'而不是'image_id'
+      if (config.image) {
+        // 使用image作为image_id
+        formValues.image_id = config.image;
+        
+        // 如果有image_name并且不是"未知镜像"，则使用它
+        // 否则使用image字段作为镜像名
+        if (config.image_name && config.image_name !== '未知镜像') {
+          formValues.image_name = config.image_name;
+        } else {
+          formValues.image_name = config.image;
+        }
+        
+        // 尝试在镜像列表中找到对应的镜像
+        const image = images.find(img => `${img.name}:${img.version}` === config.image || img.id === config.image);
+        if (image) {
+          setSelectedImage(image);
+          formValues.image_id = image.id;
+          formValues.image_name = `${image.name}:${image.version}`;
+        }
+      }
+      
+      form.setFieldsValue(formValues);
     }
   };
 
@@ -204,9 +229,10 @@ const ModelDeployForm = () => {
     setSelectedImage(image);
     
     if (image) {
-      // 自动填充镜像相关字段，只填充镜像名
+      // 自动填充镜像相关字段，只显示镜像名称和版本
       form.setFieldsValue({
-        image: `${image.name}:${image.version}`
+        image_id: image.id,
+        image_name: `${image.name}:${image.version}`
       });
     }
   };
@@ -216,8 +242,9 @@ const ModelDeployForm = () => {
     setSubmitting(true);
     try {
       // 构建部署请求数据
+      const { image_name, ...otherValues } = values; // 移除image_name字段，它只用于显示
       const deployData = {
-        ...values,
+        ...otherValues,
         // 将gpuCount转换为整数
         gpuCount: parseInt(values.gpuCount, 10),
         // 确保使用正确的集群名称
@@ -369,11 +396,19 @@ const ModelDeployForm = () => {
                 
                 <Col span={12}>
                   <Form.Item
-                    name="image"
-                    label="镜像名"
-                    rules={[{ required: true, message: '请输入镜像名' }]}
+                    name="image_id"
+                    label="镜像"
+                    rules={[{ required: true, message: '请选择镜像' }]}
+                    hidden
                   >
-                    <Input placeholder="请输入镜像名，例如：vllm_image:v3" />
+                    <Input />
+                  </Form.Item>
+                  <Form.Item
+                    name="image_name"
+                    label="镜像"
+                    rules={[{ required: true, message: '请选择镜像' }]}
+                  >
+                    <Input placeholder="请先选择镜像" disabled />
                   </Form.Item>
                 </Col>
               </Row>

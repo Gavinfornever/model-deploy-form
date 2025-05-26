@@ -104,8 +104,220 @@ class GPUAdapter(abc.ABC):
     def execute_task(self, node: NodeInfo, gpu: GPUInfo, task: Task) -> Any:
         """执行任务"""
         pass
+        
+    @abc.abstractmethod
+    def build_container_command(self, node: NodeInfo, gpus: List[str], params: Dict[str, Any]) -> str:
+        """
+        构建容器运行命令
+        
+        Args:
+            node: 节点信息
+            gpus: GPU ID列表
+            params: 运行参数，包含以下字段：
+                - host: 主机地址
+                - port: 端口列表
+                - model_path: 模型路径
+                - log_path: 日志路径
+                - docker_image: Docker镜像
+                - docker_name: 容器名称
+                - python: Python解释器路径
+                - controller_address: 控制器地址
+                - model_names: 模型名称
+                - other_params: 其他参数
+                
+        Returns:
+            str: 构建的容器运行命令
+        """
+        pass
 
 # ====================== 适配器实现 ======================
+
+class MuxiGPUAdapter(GPUAdapter):
+    """沐曦GPU适配器"""
+    
+    def get_adapter_type(self) -> str:
+        return "muxi"
+    
+    def discover_nodes(self, config: Dict[str, Any]) -> List[NodeInfo]:
+        """发现沐曦GPU节点"""
+        logger.info(f"Discovering Muxi nodes with config: {config}")
+        nodes = []
+        
+        # 从配置中读取节点信息
+        for node_config in config.get("nodes", []):
+            node_id = node_config.get("id", str(uuid.uuid4()))
+            node_name = node_config.get("name", f"muxi-node-{node_id}")
+            node_ip = node_config.get("ip", "")
+            node_port = node_config.get("port", 22)
+            
+            if not node_ip:
+                logger.warning(f"Skipping node {node_name} with empty IP")
+                continue
+            
+            # 创建节点信息
+            node = NodeInfo(
+                id=node_id,
+                name=node_name,
+                ip=node_ip,
+                port=node_port,
+                status="unknown"
+            )
+            
+            # 获取GPU信息
+            try:
+                node.gpus = self.get_gpu_info(node)
+                node.status = self.check_node_status(node)
+                node.last_heartbeat = time.time()
+                
+                # 获取节点系统信息
+                node.memory_total = node_config.get("memory_total", 0)
+                node.memory_available = node_config.get("memory_available", 0)
+                node.cpu_info = node_config.get("cpu_info", {})
+                
+                nodes.append(node)
+                logger.info(f"Discovered Muxi node: {node.name} ({node.ip}) with {len(node.gpus)} GPUs")
+            except Exception as e:
+                logger.error(f"Error discovering Muxi node {node_name} ({node_ip}): {str(e)}")
+        
+        return nodes
+    
+    def get_gpu_info(self, node: NodeInfo) -> List[GPUInfo]:
+        """获取沐曦GPU信息"""
+        logger.info(f"Getting GPU info for Muxi node: {node.name} ({node.ip})")
+        gpus = []
+        
+        try:
+            # 使用mx-smi命令获取沐曦GPU信息
+            # 在实际实现中，通过SSH执行mx-smi命令获取GPU信息
+            # 以下是示例代码，实际实现需要根据沐曦GPU的特性进行调整
+            
+            # 模拟SSH执行mx-smi命令
+            # 实际代码应该类似于：
+            # ssh_client = paramiko.SSHClient()
+            # ssh_client.connect(node.ip, port=node.port, username=username, password=password)
+            # stdin, stdout, stderr = ssh_client.exec_command('mx-smi --query-gpu=index,name,memory.total --format=csv,noheader,nounits')
+            # mx_smi_output = stdout.read().decode('utf-8').strip().split('\n')
+            
+            # 模拟mx-smi输出
+            mx_smi_output = [
+                "0, MXC500, 65536",
+                "1, MXC500, 65536"
+            ]
+            
+            for line in mx_smi_output:
+                parts = line.split(",")
+                if len(parts) >= 3:
+                    gpu_id = parts[0].strip()
+                    gpu_name = parts[1].strip()
+                    memory_total = int(parts[2].strip())
+                    
+                    gpu = GPUInfo(
+                        id=gpu_id,
+                        name=gpu_name,
+                        memory_total=memory_total,
+                        gpu_type=GPUType.UNKNOWN,  # 可以定义一个新的枚举值 GPUType.MUXI
+                        compute_capability="1.0"  # 沐曦GPU的计算能力版本
+                    )
+                    
+                    # 可以添加额外信息
+                    gpu.extra_info = {
+                        "driver_version": "1.0.0",  # 假设的驱动版本
+                        "utilization": 0  # 初始利用率为0
+                    }
+                    
+                    gpus.append(gpu)
+            
+            logger.info(f"Found {len(gpus)} Muxi GPUs on node {node.name} using mx-smi")
+        except Exception as e:
+            logger.error(f"Error getting Muxi GPU info for node {node.name}: {str(e)}")
+        
+        return gpus
+    
+    def check_node_status(self, node: NodeInfo) -> str:
+        """检查沐曦节点状态"""
+        logger.info(f"Checking status for Muxi node: {node.name} ({node.ip})")
+        
+        try:
+            # 这里应该实现检查沐曦节点状态的逻辑
+            # 例如通过SSH执行命令检查节点状态
+            # 以下是示例代码，实际实现需要根据沐曦GPU的特性进行调整
+            
+            # 模拟检查节点状态
+            # 在实际实现中，可以通过SSH执行ping或其他命令检查节点状态
+            status = "online"  # 假设节点在线
+            
+            logger.info(f"Muxi node {node.name} status: {status}")
+            return status
+        except Exception as e:
+            logger.error(f"Error checking Muxi node {node.name} status: {str(e)}")
+            return "offline"
+    
+    def execute_task(self, node: NodeInfo, gpu: GPUInfo, task: Task) -> Any:
+        """在沐曦GPU上执行任务"""
+        logger.info(f"Executing task {task.name} on Muxi node {node.name}, GPU {gpu.id}")
+        
+        try:
+            # 这里应该实现在沐曦GPU上执行任务的逻辑
+            # 例如通过SSH执行命令或通过API调用执行任务
+            # 以下是示例代码，实际实现需要根据沐曦GPU的特性进行调整
+            
+            # 模拟执行任务
+            # 在实际实现中，可以通过SSH执行命令或通过API调用执行任务
+            result = f"Task {task.name} executed on Muxi GPU {gpu.id}"
+            
+            logger.info(f"Task {task.name} executed successfully on Muxi node {node.name}, GPU {gpu.id}")
+            return result
+        except Exception as e:
+            logger.error(f"Error executing task {task.name} on Muxi node {node.name}, GPU {gpu.id}: {str(e)}")
+            raise
+        
+    def build_container_command(self, node: NodeInfo, gpus: List[str], params: Dict[str, Any]) -> str:
+        """构建沐曦GPU容器运行命令"""
+        logger.info(f"Building container command for Muxi node {node.name} with GPUs {gpus}")
+        
+        # 获取参数
+        host = params.get("host", "0.0.0.0")
+        ports = params.get("port", [])
+        model_path = params.get("model_path", "/models")
+        log_path = params.get("log_path", "/logs")
+        docker_image = params.get("docker_image", "")
+        docker_name = params.get("docker_name", "")
+        python = params.get("python", "python")
+        controller_address = params.get("controller_address", "")
+        model_names = params.get("model_names", "")
+        other_params = params.get("other_params", "")
+        
+        # 检查必要参数
+        if not docker_image or not docker_name or not ports:
+            logger.error("Missing required parameters for container command")
+            return ""
+        
+        # 构建GPU设备参数
+        gpus_str = ",".join(gpus)
+        
+        # 构建路径映射
+        model_path_volume = f"{model_path}:/models"
+        log_path_volume = f"{log_path}:/logs"
+        
+        # 构建沐曦GPU特有的参数
+        # 沐曦GPU需要特殊的设备参数和环境变量
+        muxi_specific_params = "--device=/dev/dri --device=/dev/mxcd --group-add video -e MCCL_SOCKET_IFNAME=ens1np0"
+        
+        # 构建完整的命令
+        port_idx = 0  # 使用第一个端口
+        port = ports[port_idx] if port_idx < len(ports) else 8000
+        
+        command = f"docker run --network=host -p {port}:{port} -v {log_path_volume} \
+-v {model_path_volume} -e MX_VISIBLE_DEVICES={gpus_str} \
+{muxi_specific_params} --name {docker_name} {docker_image} {python} \
+/fschat/general_worker.py --host {host} --port {port} \
+--model-path {model_path} --controller-address {controller_address} \
+--worker-address http://{host}:{port} --model-names {model_names} \
+--log-dir {log_path} --gpus 0 {other_params} --docker-name {docker_name}"
+        
+        logger.info(f"Built container command: {command}")
+        return command
+
 
 class NvidiaGPUAdapter(GPUAdapter):
     """NVIDIA GPU适配器"""
@@ -328,6 +540,49 @@ class NvidiaGPUAdapter(GPUAdapter):
         task.result = result
         
         return result
+        
+    def build_container_command(self, node: NodeInfo, gpus: List[str], params: Dict[str, Any]) -> str:
+        """构建NVIDIA GPU容器运行命令"""
+        logger.info(f"Building container command for NVIDIA node {node.name} with GPUs {gpus}")
+        
+        # 获取参数
+        host = params.get("host", "0.0.0.0")
+        ports = params.get("port", [])
+        model_path = params.get("model_path", "/models")
+        log_path = params.get("log_path", "/logs")
+        docker_image = params.get("docker_image", "")
+        docker_name = params.get("docker_name", "")
+        python = params.get("python", "python")
+        controller_address = params.get("controller_address", "")
+        model_names = params.get("model_names", "")
+        other_params = params.get("other_params", "")
+        
+        # 检查必要参数
+        if not docker_image or not docker_name or not ports:
+            logger.error("Missing required parameters for container command")
+            return ""
+        
+        # 构建GPU设备参数
+        gpus_str = ",".join(gpus)
+        
+        # 构建路径映射
+        model_path_volume = f"{model_path}:/models"
+        log_path_volume = f"{log_path}:/logs"
+        
+        # 构建完整的命令
+        port_idx = 0  # 使用第一个端口
+        port = ports[port_idx] if port_idx < len(ports) else 8000
+        
+        command = f"docker run --network=host -p {port}:{port} -v {log_path_volume} \
+-v {model_path_volume} -e NVIDIA_VISIBLE_DEVICES={gpus_str} \
+--gpus all --name {docker_name} {docker_image} {python} \
+/fschat/general_worker.py --host {host} --port {port} \
+--model-path {model_path} --controller-address {controller_address} \
+--worker-address http://{host}:{port} --model-names {model_names} \
+--log-dir {log_path} --gpus 0 {other_params} --docker-name {docker_name}"
+        
+        logger.info(f"Built container command: {command}")
+        return command
 
 class AppleGPUAdapter(GPUAdapter):
     """Apple Silicon GPU适配器"""
@@ -542,6 +797,49 @@ class AppleGPUAdapter(GPUAdapter):
         task.result = result
         
         return result
+        
+    def build_container_command(self, node: NodeInfo, gpus: List[str], params: Dict[str, Any]) -> str:
+        """构建Apple GPU容器运行命令"""
+        logger.info(f"Building container command for Apple node {node.name} with GPUs {gpus}")
+        
+        # 获取参数
+        host = params.get("host", "0.0.0.0")
+        ports = params.get("port", [])
+        model_path = params.get("model_path", "/models")
+        log_path = params.get("log_path", "/logs")
+        docker_image = params.get("docker_image", "")
+        docker_name = params.get("docker_name", "")
+        python = params.get("python", "python")
+        controller_address = params.get("controller_address", "")
+        model_names = params.get("model_names", "")
+        other_params = params.get("other_params", "")
+        
+        # 检查必要参数
+        if not docker_image or not docker_name or not ports:
+            logger.error("Missing required parameters for container command")
+            return ""
+        
+        # 构建路径映射
+        model_path_volume = f"{model_path}:/models"
+        log_path_volume = f"{log_path}:/logs"
+        
+        # 构建完整的命令
+        port_idx = 0  # 使用第一个端口
+        port = ports[port_idx] if port_idx < len(ports) else 8000
+        
+        # Apple Silicon特有的参数
+        apple_specific_params = "--platform linux/arm64"
+        
+        command = f"docker run --network=host -p {port}:{port} -v {log_path_volume} \
+-v {model_path_volume} {apple_specific_params} \
+--name {docker_name} {docker_image} {python} \
+/fschat/general_worker.py --host {host} --port {port} \
+--model-path {model_path} --controller-address {controller_address} \
+--worker-address http://{host}:{port} --model-names {model_names} \
+--log-dir {log_path} {other_params} --docker-name {docker_name}"
+        
+        logger.info(f"Built container command: {command}")
+        return command
 
 # ====================== 资源管理 ======================
 
@@ -823,6 +1121,7 @@ class ClusterController:
         # 注册适配器
         self.registry.register_adapter(NvidiaGPUAdapter())
         self.registry.register_adapter(AppleGPUAdapter())
+        self.registry.register_adapter(MuxiGPUAdapter())
         
     def initialize(self):
         """初始化系统"""

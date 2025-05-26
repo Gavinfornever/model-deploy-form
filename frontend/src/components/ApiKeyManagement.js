@@ -216,7 +216,7 @@ const ApiKeyManagement = () => {
       dataIndex: 'last_used',
       key: 'last_used',
       width: 180,
-      render: (date) => date ? moment(date).format('YYYY-MM-DD HH:mm:ss') : '从未使用',
+      render: (date) => date ? moment(date).format('YYYY-MM-DD HH:mm:ss') : '/',
     },
     {
       title: '操作',

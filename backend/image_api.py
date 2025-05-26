@@ -8,6 +8,7 @@ from pymongo import MongoClient
 import json
 from werkzeug.utils import secure_filename
 import oss2
+from bson import ObjectId
 
 image_api = Blueprint('image_api', __name__)
 
@@ -115,12 +116,36 @@ except Exception as e:
 @image_api.route('/images', methods=['GET'])
 def get_images():
     try:
+        # 获取所有镜像
         images = list(images_collection.find({}, {'_id': 0}))
+        
+        # 导入用户集合
+        from auth_api import users_collection
+        
+        # 遍历所有镜像，添加创建者名称
+        for image in images:
+            creator_id = image.get('creator_id')
+            # 兼容旧数据，如果没有creator_id字段但有creator字段
+            if not creator_id and 'creator' in image:
+                creator_id = image.get('creator')
+                
+            if creator_id:
+                # 查询用户集合获取用户名
+                user = users_collection.find_one({'_id': ObjectId(creator_id) if len(creator_id) == 24 else creator_id})
+                if user:
+                    image['creator_name'] = user.get('username', '未知用户')
+                else:
+                    # 如果找不到用户，使用ID作为名称
+                    image['creator_name'] = f'用户ID: {creator_id}'
+            else:
+                image['creator_name'] = '未知用户'
+        
         return jsonify({
             'status': 'success',
             'data': images
         })
     except Exception as e:
+        print(f"获取镜像列表失败: {e}")
         return jsonify({
             'status': 'error',
             'message': str(e)
@@ -184,6 +209,26 @@ def get_image(image_id):
         # 从 MongoDB 中获取指定镜像
         image = images_collection.find_one({'id': image_id}, {'_id': 0})
         if image:
+            # 导入用户集合
+            from auth_api import users_collection
+            
+            # 添加创建者名称
+            creator_id = image.get('creator_id')
+            # 兼容旧数据，如果没有creator_id字段但有creator字段
+            if not creator_id and 'creator' in image:
+                creator_id = image.get('creator')
+                
+            if creator_id:
+                # 查询用户集合获取用户名
+                user = users_collection.find_one({'_id': ObjectId(creator_id) if len(creator_id) == 24 else creator_id})
+                if user:
+                    image['creator_name'] = user.get('username', '未知用户')
+                else:
+                    # 如果找不到用户，使用ID作为名称
+                    image['creator_name'] = f'用户ID: {creator_id}'
+            else:
+                image['creator_name'] = '未知用户'
+                
             return jsonify({
                 'status': 'success',
                 'data': image
@@ -194,6 +239,10 @@ def get_image(image_id):
         # 如果连接失败，使用备用数据
         image = next((img for img in fallback_images if img['id'] == image_id), None)
         if image:
+            # 为备用数据添加creator_name字段
+            creator = image.get('creator', '')
+            image['creator_name'] = creator
+            
             return jsonify({
                 'status': 'success',
                 'data': image
@@ -205,8 +254,23 @@ def add_image():
     """添加新镜像"""
     data = request.json
     
-    # 验证必要字段
-    required_fields = ['name', 'version', 'size', 'createDate', 'creator', 'dockerfileContent']
+    # 从JWT令牌中获取用户ID
+    auth_header = request.headers.get('Authorization')
+    user_id = None
+    
+    if auth_header:
+        try:
+            token = auth_header.split(' ')[1]
+            # 导入SECRET_KEY
+            from auth_api import SECRET_KEY
+            import jwt
+            payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+            user_id = payload.get('user_id')
+        except Exception as e:
+            print(f"JWT解码错误: {str(e)}")
+    
+    # 验证必要字段（creator_id字段由后端自动添加）
+    required_fields = ['name', 'version', 'size', 'createDate', 'dockerfileContent']
     for field in required_fields:
         if field not in data:
             return jsonify({"status": "error", "message": f"缺少必要字段: {field}"}), 400
@@ -223,7 +287,7 @@ def add_image():
             "version": data['version'],
             "size": data['size'],
             "createDate": data['createDate'],
-            "creator": data['creator'],
+            "creator_id": user_id if user_id else "5da7dce1",  # 如果没有获取到用户ID，则使用王高3的ID
             "dockerfileContent": data['dockerfileContent'],
             "ossUrl": data.get('ossUrl', '')
         }
@@ -245,7 +309,7 @@ def add_image():
             "version": data['version'],
             "size": data['size'],
             "createDate": data['createDate'],
-            "creator": data['creator'],
+            "creator_id": user_id if user_id else "5da7dce1",  # 如果没有获取到用户ID，则使用王高3的ID
             "dockerfileContent": data.get('dockerfileContent', ''),
             "ossUrl": data.get('ossUrl', '')
         }
@@ -301,16 +365,30 @@ def upload_image():
     if file.filename == '':
         return jsonify({"status": "error", "message": "没有选择文件"}), 400
     
+    # 从JWT令牌中获取用户ID
+    auth_header = request.headers.get('Authorization')
+    user_id = None
+    
+    if auth_header:
+        try:
+            token = auth_header.split(' ')[1]
+            # 导入SECRET_KEY
+            from auth_api import SECRET_KEY
+            import jwt
+            payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+            user_id = payload.get('user_id')
+        except Exception as e:
+            print(f"JWT解码错误: {str(e)}")
+    
     # 获取表单数据
     name = request.form.get('name')
     version = request.form.get('version')
     size = request.form.get('size')
     createDate = request.form.get('createDate')
-    creator = request.form.get('creator')
     dockerfileContent = request.form.get('dockerfileContent')
     
-    # 验证必要字段
-    required_fields = ['name', 'version', 'size', 'createDate', 'creator', 'dockerfileContent']
+    # 验证必要字段（不再需要creator字段，将由后端自动添加）
+    required_fields = ['name', 'version', 'size', 'createDate', 'dockerfileContent']
     for field in required_fields:
         if not locals()[field]:
             return jsonify({"status": "error", "message": f"缺少必要字段: {field}"}), 400
@@ -343,7 +421,7 @@ def upload_image():
             "version": version,
             "size": size,
             "createDate": createDate,
-            "creator": creator,
+            "creator_id": user_id if user_id else "5da7dce1",  # 如果没有获取到用户ID，则使用王高3的ID
             "dockerfileContent": dockerfileContent,
             "ossUrl": oss_url
         }

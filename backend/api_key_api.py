@@ -71,14 +71,35 @@ def get_api_keys():
     if not payload:
         return jsonify({"status": "error", "message": "未授权访问"}), 401
     
-    user_id = payload.get('id')
+    user_id = payload.get('user_id')  # 注意：JWT中的字段是user_id而不是id
+    # 打印完整的payload以检查字段
+    print('\n\nJWT Payload:', payload)
     user_role = payload.get('role')
     
-    # 管理员可以查看所有API密钥，普通用户只能查看自己的
-    if user_role == '管理员':
-        keys = api_keys
-    else:
-        keys = [key for key in api_keys if key['user_id'] == user_id]
+    try:
+        # 管理员可以查看所有API密钥，普通用户只能查看自己的
+        if user_role == '管理员':
+            print('\n查询所有API密钥')
+            keys_cursor = api_keys_collection.find({})
+        else:
+            query = {"user_id": user_id}
+            print(f'\n查询用户 {user_id} 的API密钥, 查询条件: {query}')
+            keys_cursor = api_keys_collection.find(query)
+        
+        # 将MongoDB文档转换为可JSON序列化的字典
+        keys = []
+        for key in keys_cursor:
+            # 处理ObjectId
+            if '_id' in key:
+                key['_id'] = str(key['_id'])
+            keys.append(key)
+        
+        print(f'\n查询结果: 找到 {len(keys)} 个API密钥')
+        if keys:
+            print('第一个API密钥:', keys[0])
+    except Exception as e:
+        print(f"API密钥获取失败: {str(e)}")
+        return jsonify({"status": "error", "message": f"API密钥获取失败: {str(e)}"}), 500
     
     return jsonify({"status": "success", "data": keys}), 200
 

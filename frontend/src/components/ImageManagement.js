@@ -391,10 +391,13 @@ const ImageManagement = () => {
   // 编辑镜像
   const handleEditImage = (record) => {
     setEditingImage(record);
-    form.setFieldsValue({
+    // 兼容处理，如果记录中有creator字段但没有creator_id字段
+    const formData = {
       ...record,
-      createDate: moment(record.createDate)
-    });
+      createDate: moment(record.createDate),
+      creator_id: record.creator_id || record.creator
+    };
+    form.setFieldsValue(formData);
     setModalVisible(true);
   };
 
@@ -411,8 +414,8 @@ const ImageManagement = () => {
     img => 
       img.name.toLowerCase().includes(searchText.toLowerCase()) ||
       img.version.toLowerCase().includes(searchText.toLowerCase()) ||
-      img.cluster.includes(searchText) ||
-      img.creator.includes(searchText)
+      img.cluster?.includes(searchText) ||
+      (img.creator_id && img.creator_id.includes(searchText))
   );
 
   // 表格列定义
@@ -471,8 +474,8 @@ const ImageManagement = () => {
     },
     {
       title: '创建者',
-      dataIndex: 'creator',
-      key: 'creator',
+      dataIndex: 'creator_name',  // 将使用后端返回的creator_name字段
+      key: 'creator_name',
     },
     {
       title: '操作',
@@ -605,15 +608,6 @@ const ImageManagement = () => {
           
           <div style={{ display: 'flex', gap: '16px' }}>
             <Form.Item
-              name="creator"
-              label="创建者"
-              rules={[{ required: true, message: '请输入创建者' }]}
-              style={{ flex: 1 }}
-            >
-              <Input placeholder="请输入创建者" />
-            </Form.Item>
-            
-            <Form.Item
               name="ossUrl"
               label="OSS地址"
               rules={[{ required: false, message: '请输入OSS地址' }]}
@@ -621,6 +615,8 @@ const ImageManagement = () => {
             >
               <Input placeholder="上传文件后会自动生成OSS地址" disabled />
             </Form.Item>
+            
+            {/* 创建者ID字段已移除，由后端自动处理 */}
           </div>
           
           <Form.Item
