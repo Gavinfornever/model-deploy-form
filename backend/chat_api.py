@@ -21,7 +21,8 @@ class GradioModelClient:
     def __init__(self, model_id, model_info):
         self.model_id = model_id
         self.model_info = model_info
-        self.api_url = f"http://{model_info['server']}:{model_info['port']}/stream_generate"
+        self.api_url = f"http://{model_info['server']}:{model_info['port']}/chat/stream"
+        # self.api_url = f"http://{model_info['server']}:{model_info['port']}/generate/stream"
         self.token = "20548cb5a329260ead027437cb22590e945504abd419e2e44ba312feda2ff29e"  # 实际应用中应该从配置或环境变量获取
     
     def generate_stream(self, message):
@@ -34,14 +35,13 @@ class GradioModelClient:
         }
         
         payload = json.dumps({
-            "model": self.model_info.get('modelName', 'qwen2.5-0.5b_vllm'),
-            "params": {
-                "request_id": str(uuid.uuid4()),
-                "prompt": [message],
-                "n": 1,
-                "max_tokens": 100,
-                "ignore_eos": True
-            }
+            "messages": [
+                {"role": "user", "content": message}
+            ],
+            # "prompt": message,
+            "max_length": 40,  # 减少max_length加快生成速度
+            "temperature": 0.7,
+            "top_p": 0.9
         })
         
         try:
@@ -49,11 +49,35 @@ class GradioModelClient:
             response = requests.post(self.api_url, headers=headers, data=payload, stream=True)
             response.raise_for_status()
             
-            # 直接返回原始响应，不做解析
-            # 直接将原始响应传递给前端，由前端处理
+            # 处理流式响应并转发给前端
+            accumulated_text = ""
+            
             for line in response.iter_lines():
                 if line:
-                    yield line.decode('utf-8')
+                    try:
+                        line_text = line.decode('utf-8')
+                        print(f"收到流式响应: {line_text}")
+                        
+                        # 解析JSON响应
+                        data = json.loads(line_text)
+                        
+                        # 提取文本并累加
+                        if 'text' in data:
+                            # 直接使用模型返回的完整文本
+                            # 这里不再累加，而是直接使用模型返回的完整文本
+                            current_text = data.get('text', '')
+                            
+                            # 转换为前端期望的格式
+                            sse_data = {"text": current_text}
+                            if data.get('done', False):
+                                sse_data["done"] = True
+                            
+                            # 发送给前端
+                            yield f"data: {json.dumps(sse_data)}"
+                    except json.JSONDecodeError as e:
+                        print(f"JSON解析错误: {str(e)}, 原始数据: {line_text}")
+                    except Exception as e:
+                        print(f"处理流式响应行时发生错误: {str(e)}")
                     
         except Exception as e:
             yield f"调用模型API时出错: {str(e)}"

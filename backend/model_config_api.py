@@ -304,10 +304,20 @@ def create_model_config():
         data = request.json
         
         # 验证必要字段
-        required_fields = ['modelName', 'backend', 'image_id', 'gpuCount', 'memoryUsage', 'modelPath']
+        required_fields = ['modelName', 'backend', 'gpuCount', 'memoryUsage', 'modelPath']
         for field in required_fields:
             if field not in data:
                 return jsonify({"status": "error", "message": f"缺少必要字段: {field}"}), 400
+                
+        # 处理image_id字段
+        if 'image_id' not in data:
+            # 如果有image字段，将其用作 image_id
+            if 'image' in data:
+                data['image_id'] = data['image']
+            else:
+                # 使用默认值
+                data['image_id'] = 'transformers:apple-lite-v1'
+                print(f"缺少image_id字段，使用默认值: {data['image_id']}")
                 
         # 确保node字段存在，如果不存在则设置默认值
         if 'node' not in data or not data['node']:

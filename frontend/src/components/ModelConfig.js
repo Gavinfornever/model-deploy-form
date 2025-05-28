@@ -531,7 +531,7 @@ const ModelConfig = () => {
             <Descriptions.Item label="模型名称" span={2}>{currentConfig.modelName}</Descriptions.Item>
             <Descriptions.Item label="部署后端">{currentConfig.backend}</Descriptions.Item>
 
-            <Descriptions.Item label="镜像名">{currentConfig.image}</Descriptions.Item>
+            <Descriptions.Item label="镜像名">{currentConfig.image_name || currentConfig.image_id || '未指定'}</Descriptions.Item>
             <Descriptions.Item label="GPU资源">
               {`${currentConfig.gpuCount || 4}个 x ${currentConfig.memoryUsage || 40}GB`}
             </Descriptions.Item>

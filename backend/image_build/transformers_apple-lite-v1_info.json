@@ -1,0 +1,10 @@
+{
+  "name": "transformers",
+  "version": "apple-lite-v1",
+  "full_name": "transformers:apple-lite-v1",
+  "build_time": 111.27336287498474,
+  "build_date": "2025-05-28 22:57:34",
+  "platform": "apple",
+  "optimized_for": "Apple Silicon (M1/M2/M3)",
+  "dockerfile": "Dockerfile.apple.lite"
+}

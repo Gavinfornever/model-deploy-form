@@ -720,8 +720,8 @@ def update_node_info(cluster_id):
             "message": str(e)
         }), 500
 
-@app.route('/api/clusters', methods=['GET'])
 # @jwt_required()
+@app.route('/api/clusters', methods=['GET'])
 def get_clusters():
     """获取所有集群信息"""
     try:
@@ -1058,7 +1058,19 @@ def deploy_model():
         logger.info(f"接收到部署请求: {data}")
         
         # 验证必要字段
-        required_fields = ['modelName', 'version', 'backend', 'image', 'cluster', 'node', 'gpuCount', 'memoryUsage', 'modelPath']
+        required_fields = ['modelName', 'version', 'backend', 'cluster', 'node', 'gpuCount', 'memoryUsage', 'modelPath']
+        
+        # 检查镜像字段 - 支持 image 或 image_id
+        if 'image' not in data and 'image_id' not in data:
+            # 使用默认镜像
+            data['image'] = 'transformers:apple-lite-v1'
+            logger.info("缺少镜像字段，使用默认镜像: transformers:apple-lite-v1")
+        
+        # 如果使用的是 image_id，将其转换为 image
+        if 'image_id' in data and 'image' not in data:
+            data['image'] = data['image_id']
+            logger.info(f"使用 image_id 作为 image: {data['image']}")
+        
         for field in required_fields:
             if field not in data or not data[field]:
                 return jsonify({

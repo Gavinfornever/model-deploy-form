@@ -253,8 +253,8 @@ const ModelDeployForm = () => {
         status: 'pending'
       };
 
-      // 提交到中心控制器（端口5001）
-      const response = await fetch('http://127.0.0.1:5001/api/deploy', {
+      // 提交到应用服务器（端口5000）
+      const response = await fetch('http://127.0.0.1:5000/api/deploy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(deployData),

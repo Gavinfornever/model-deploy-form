@@ -1,10 +1,11 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 import uuid
 import random
 import datetime
 import json
 import jwt
+import requests
 from bson import ObjectId
 from pymongo import MongoClient
 
@@ -21,8 +22,10 @@ class MongoJSONEncoder(json.JSONEncoder):
 from chat_api import chat_api
 from image_api import image_api
 from model_config_api import model_config_api
+from model_deployment import model_instances_to_add
 from auth_api import auth_api, generate_password_hash, check_password_hash, SECRET_KEY
 from api_key_api import api_key_api
+from model_deployment import model_deployment_api, init_model_deployment
 
 # 连接MongoDB
 try:
@@ -80,152 +83,49 @@ app.register_blueprint(image_api, url_prefix='/api')
 app.register_blueprint(model_config_api, url_prefix='/api')
 app.register_blueprint(auth_api, url_prefix='/api')
 app.register_blueprint(api_key_api, url_prefix='/api')
+app.register_blueprint(model_deployment_api, url_prefix='')
 
-# 模拟数据库，存储模型实例信息
+# 注册模型路由器
+try:
+    from model_schedule.router import register_router
+    register_router(app)
+    print("模型路由器已成功注册")
+except ImportError as e:
+    print(f"模型路由器导入失败: {str(e)}")
+
+# 初始化模型部署模块
+init_model_deployment()
+
+# 存储模型实例信息
 model_instances = [
+    # 真实的Mac-transformers模型实例
     {
-        "id": "m0",
-        "modelId": "qwen2.5-0.5b_vllm",
-        "modelName": "qwen2.5-0.5b_vllm",
-        "backend": "vllm",
+        "id": "qwen-model-8076",
+        "modelId": "qwen-model-8076",
+        "modelName": "Qwen2.5-0.5B-Mac",
+        "backend": "mac",
         "server": "localhost",
-        "port": "20093",
-        "gpu": "0",
+        "port": "8076",
+        "gpu": "Apple Silicon",
         "status": "running",
         "cluster": "local",
-        "modelPath": "/models/qwen2.5-0.5b",
-        "node": "node1",
-        "creator_name": "王高3"
+        "modelPath": "/app/models/Qwen2.5-0.5B",
+        "node": "localhost",
+        "creator_name": "当前用户"
     },
     {
-        "id": "m1",
-        "modelId": "qwen_cpt_vilm",
-        "modelName": "qwen_cpt_vllim",
-        "backend": "vllim",
-        "port": "21001",
-        "gpu": "4",
+        "id": "qwen-model-8061",
+        "modelId": "qwen-model-8061",
+        "modelName": "Qwen2.5-0.5B-Mac",
+        "backend": "mac",
+        "server": "localhost",
+        "port": "8061",
+        "gpu": "Apple Silicon",
         "status": "running",
-        "cluster": "muxi",
-        "modelPath": "/mnt/share/models/dataset_E_xy_14b",
-        "node": "wanggaodeMacBook-Pro.local",
-        "creator_name": "王高3"
-    },
-    {
-        "id": "m2",
-        "modelId": "selfmodel_vllm",
-        "modelName": "selfmodel_vllm",
-        "backend": "vllm",
-        "port": "21001",
-        "gpu": "0,1",
-        "status": "stopped",
-        "cluster": "A10服务器",
-        "modelPath": "/mnt/share/models/xy.70b 30b fini..",
-        "node": "node3",
-        "creator_name": "王高3"
-    },
-    {
-        "id": "m3",
-        "modelId": "baai sim transformers",
-        "modelName": "baai sim_transformers",
-        "backend": "transformers",
-        "port": "21010",
-        "gpu": "3",
-        "status": "running",
-        "cluster": "muxi",
-        "modelPath": "/mnt/share/models/tzy/BAAl-bge-ba..",
-        "node": "wanggaodeMacBook-Pro.local",
-        "creator_name": "王高3"
-    },
-    {
-        "id": "m4",
-        "modelId": "baai sim. transformers",
-        "modelName": "baai sim transformers",
-        "backend": "transformers",
-        "port": "21011",
-        "gpu": "0,1",
-        "status": "running",
-        "cluster": "A10服务器",
-        "modelPath": "/mnt/share/models/tzy/BAAl-bge-ba..",
-        "node": "node5",
-        "creator_name": "王高3"
-    },
-    {
-        "id": "m5",
-        "modelId": "baai sim_transformers",
-        "modelName": "baai sim_transformers",
-        "backend": "transformers",
-        "port": "21012",
-        "gpu": "2",
-        "status": "running",
-        "cluster": "muxi",
-        "modelPath": "/mnt/share/models/tzy/BAAl-bge-ba.",
-        "node": "node6",
-        "creator_name": "王高3"
-    },
-    {
-        "id": "m6",
-        "modelId": "baai_sim_ transformers",
-        "modelName": "baai_sim_transformers",
-        "backend": "transformers",
-        "port": "21013",
-        "gpu": "8",
-        "status": "stopped",
-        "cluster": "A10服务器",
-        "modelPath": "/mnt/share/models/tzy/BAAl-bge-ba.",
-        "node": "wanggaodeMacBook-Pro.local",
-        "creator_name": "王高3"
-    },
-    {
-        "id": "m7",
-        "modelId": "qwen_comment vllm",
-        "modelName": "qwen_comment vllm",
-        "backend": "vllm",
-        "port": "21004",
-        "gpu": "5",
-        "status": "running",
-        "cluster": "muxi",
-        "modelPath": "/mnt/share/models/comment v3/",
-        "node": "node2",
-        "creator_name": "王高3"
-    },
-    {
-        "id": "m8",
-        "modelId": "qwen datasetE yllm",
-        "modelName": "qwen_datasetE vllm",
-        "backend": "yllm",
-        "port": "21005",
-        "gpu": "6",
-        "status": "running",
-        "cluster": "A10服务器",
-        "modelPath": "/mnt/share/models/dataset Exy.14b",
-        "node": "node3",
-        "creator_name": "王高3"
-    },
-    {
-        "id": "m9",
-        "modelId": "qwen14b__vllm",
-        "modelName": "qwen14b_vllm",
-        "backend": "vilm",
-        "port": "21003",
-        "gpu": "0",
-        "status": "stopped",
-        "cluster": "muxi",
-        "modelPath": "/mnt/share/models/tzy/Qwen-14B-c.",
-        "node": "node4",
-        "creator_name": "王高3"
-    },
-    {
-        "id": "m10",
-        "modelId": "embedding_transformers",
-        "modelName": "embedding_transformers",
-        "backend": "transformers",
-        "port": "21006",
-        "gpu": "7",
-        "status": "running",
-        "cluster": "A10服务器",
-        "modelPath": "/mnt/share/models/tzy/paraphrase-.",
-        "node": "wanggaodeMacBook-Pro.local",
-        "creator_name": "王高3"
+        "cluster": "local",
+        "modelPath": "/app/models/Qwen2.5-0.5B",
+        "node": "localhost",
+        "creator_name": "当前用户"
     }
 ]
 
@@ -233,8 +133,23 @@ model_instances = [
 def deploy_model():
     data = request.json
     
+    # 打印接收到的请求数据
+    print("\n\n接收到的部署请求数据:", data, "\n\n")
+    
     # 验证必要字段
-    required_fields = ['modelName', 'version', 'backend', 'image', 'cluster', 'node', 'gpuCount', 'memoryUsage', 'modelPath']
+    required_fields = ['modelName', 'version', 'backend', 'cluster', 'node', 'gpuCount', 'memoryUsage', 'modelPath']
+    
+    # 检查镜像字段 - 支持 image 或 image_id
+    if 'image' not in data and 'image_id' not in data:
+        # 使用默认镜像
+        data['image'] = 'transformers:apple-lite-v1'
+        print("缺少镜像字段，使用默认镜像: transformers:apple-lite-v1")
+    
+    # 如果使用的是 image_id，将其转换为 image
+    if 'image_id' in data and 'image' not in data:
+        data['image'] = data['image_id']
+        print(f"使用 image_id 作为 image: {data['image']}")
+    
     for field in required_fields:
         if field not in data or not data[field]:
             return jsonify({
@@ -251,41 +166,113 @@ def deploy_model():
         'image': data['image'],
         'cluster': data['cluster'],
         'node': data['node'],
-        'gpuCount': int(data['gpuCount']),  # 直接使用指定的GPU数量
+        'gpuCount': int(data['gpuCount']),
         'memoryUsage': data['memoryUsage'],
         'modelPath': data['modelPath'],
         'description': data.get('description', ''),
         'creator_id': data.get('creator_id', 'anonymous'),
         'deployTime': datetime.datetime.now().isoformat(),
-        'status': 'pending',  # 初始状态为待处理
+        'status': 'pending',
     }
     
-    # 在实际应用中，这里会将部署请求发送到部署系统
-    # 目前仅模拟部署过程
+    # 根据系统类型选择部署方法
+    import platform
+    system_type = platform.system()
     
-    # 将新部署添加到模型实例列表（模拟数据库操作）
-    model_instances.append({
-        'id': new_deployment['id'],
-        'modelId': new_deployment['modelName'],
-        'modelName': new_deployment['modelName'],
-        'version': new_deployment['version'],
-        'backend': new_deployment['backend'],
-        'image': new_deployment['image'],
-        'cluster': new_deployment['cluster'],
-        'node': new_deployment['node'],
-        'gpuCount': new_deployment['gpuCount'],  # 使用指定的GPU数量
-        'memoryUsage': new_deployment['memoryUsage'],
-        'status': 'running',  # 模拟部署成功后状态变为运行中
-        'createTime': new_deployment['deployTime'],
-        'creator': new_deployment['creator_id'],
-        'description': new_deployment['description']
-    })
-    
-    return jsonify({
-        'status': 'success', 
-        'message': '模型部署请求已提交',
-        'data': new_deployment
-    }), 201
+    if system_type == 'Darwin':  # macOS系统
+        # 调用Mac部署模块
+        deploy_data = {
+            'model_name': data['modelName'],
+            'model_path': data['modelPath'],
+            'device': 'mps',  # 使用Apple GPU
+            'port': 8000 + random.randint(1, 999),  # 随机分配端口
+            'max_memory': data['memoryUsage'],
+            'image': data['image']  # 传递镜像信息
+        }
+        
+        # 发送请求到模型部署API（使用相对路径，避免端口冲突）
+        from flask import url_for
+        deploy_url = '/api/models/deploy'
+        response = requests.post(
+            f'http://localhost:5000{deploy_url}',
+            json=deploy_data
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            # 更新部署信息
+            new_deployment['status'] = 'running'  # 直接设置为运行中状态
+            new_deployment['model_id'] = result.get('model_id')
+            new_deployment['api_url'] = result.get('model_info', {}).get('api_url')
+            
+            # 将新部署添加到模型实例列表
+            # 创建一个新的模型实例
+            new_model_instance = {
+                'id': new_deployment['id'],
+                'modelId': new_deployment['modelName'],
+                'modelName': new_deployment['modelName'],
+                'version': new_deployment['version'],
+                'backend': new_deployment['backend'],
+                'image': new_deployment['image'],
+                'cluster': new_deployment['cluster'],
+                'node': new_deployment['node'],
+                'gpuCount': new_deployment['gpuCount'],
+                'memoryUsage': new_deployment['memoryUsage'],
+                'status': 'running',  # 设置为运行中状态
+                'createTime': new_deployment['deployTime'],
+                'creator': new_deployment['creator_id'],
+                'description': new_deployment['description'],
+                'api_url': new_deployment.get('api_url'),
+                'server': 'localhost',  # 添加服务器信息
+                'port': str(deploy_data['port']),  # 添加端口信息
+                'gpu': 'Apple Silicon'  # 添加GPU信息
+            }
+            
+            # 检查是否已经存在该模型
+            model_exists = False
+            for i, model in enumerate(model_instances):
+                if model.get('id') == new_model_instance['id']:
+                    model_exists = True
+                    model_instances[i] = new_model_instance  # 替换现有模型
+                    break
+            
+            if not model_exists:
+                model_instances.append(new_model_instance)
+            
+            return jsonify({
+                'status': 'success', 
+                'message': '模型部署请求已提交',
+                'data': new_deployment
+            }), 201
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': f'模型部署失败: {response.json().get("message", "未知错误")}'
+            }), 500
+    else:  # 其他系统（如Linux）
+        # 保留原有的模拟部署逻辑
+        model_instances.append({
+            'id': new_deployment['id'],
+            'modelId': new_deployment['modelName'],
+            'modelName': new_deployment['modelName'],
+            'version': new_deployment['version'],
+            'backend': new_deployment['backend'],
+            'image': new_deployment['image'],
+            'cluster': new_deployment['cluster'],
+            'node': new_deployment['node'],
+            'gpuCount': new_deployment['gpuCount'],
+            'memoryUsage': new_deployment['memoryUsage'],
+            'status': 'running',  # 模拟部署成功后状态变为运行中
+            'createTime': new_deployment['deployTime'],
+            'creator': new_deployment['creator_id'],
+            'description': new_deployment['description']
+        })
+        
+        return jsonify({
+            'status': 'success', 
+            'message': '模型部署请求已提交（模拟模式）',
+            'data': new_deployment
+        }), 201
 
 # 用户管理API
 @app.route('/api/users', methods=['GET'])
@@ -457,6 +444,26 @@ def delete_user(user_id):
 # 模型实例管理API
 @app.route('/api/models', methods=['GET'])
 def get_models():
+    # 同步来自 model_deployment.py 的模型实例
+    global model_instances
+    if model_instances_to_add:
+        for model in model_instances_to_add:
+            # 检查模型是否已经存在
+            exists = False
+            for existing_model in model_instances:
+                if existing_model.get('id') == model.get('id'):
+                    # 更新现有模型
+                    existing_model.update(model)
+                    exists = True
+                    break
+            
+            # 如果不存在，添加新模型
+            if not exists:
+                model_instances.append(model)
+        
+        # 清空待添加列表
+        model_instances_to_add.clear()
+    
     # 获取查询参数
     search = request.args.get('search', '')
     page = int(request.args.get('page', 1))
@@ -467,10 +474,10 @@ def get_models():
     if search:
         search = search.lower()
         filtered_models = [model for model in model_instances if 
-                          search in model['modelName'].lower() or 
-                          search in model['backend'].lower() or
-                          search in model['server'].lower() or
-                          search in model['gpu'].lower()]
+                          search in model.get('modelName', '').lower() or 
+                          search in model.get('backend', '').lower() or
+                          search in model.get('server', '').lower() or
+                          search in model.get('gpu', '').lower()]
     
     # 计算分页
     total = len(filtered_models)
@@ -574,6 +581,174 @@ usage_data = {
 @app.route('/api/usage', methods=['GET'])
 def get_usage_data():
     return jsonify({'status': 'success', 'data': usage_data}), 200
+
+# 获取Docker中运行的模型实例
+@app.route('/api/models/docker', methods=['GET'])
+def get_docker_models():
+    try:
+        # 执行 docker ps 命令获取运行中的容器
+        import subprocess
+        cmd = "docker ps --filter 'name=qwen-model-' --format '{{.Names}},{{.Ports}},{{.Image}}'"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            return jsonify({
+                'status': 'error',
+                'message': f'获取Docker容器列表失败: {result.stderr}'
+            }), 500
+        
+        # 解析输出结果
+        docker_models = []
+        for line in result.stdout.strip().split('\n'):
+            if not line:
+                continue
+            
+            parts = line.split(',')
+            if len(parts) < 2:
+                continue
+            
+            container_name = parts[0]
+            ports_info = parts[1]
+            
+            # 提取端口信息
+            import re
+            port_match = re.search(r'0.0.0.0:(\d+)->8000/tcp', ports_info)
+            if not port_match:
+                continue
+            
+            port = port_match.group(1)
+            
+            # 从容器名称中提取模型名称
+            model_id = container_name
+            model_name = container_name.replace('-', ' ').title()
+            
+            # 提取镜像信息
+            image_info = parts[2] if len(parts) > 2 else "transformers:apple-lite-v1"
+            
+            # 创建模型实例
+            model_instance = {
+                "id": model_id,
+                "modelId": model_id,
+                "modelName": model_name,
+                "backend": "mac",
+                "server": "localhost",
+                "port": port,
+                "gpu": "Apple Silicon",
+                "status": "running",
+                "cluster": "local",
+                "node": "localhost",
+                "creator_name": "当前用户",
+                "image": image_info,
+                "image_id": image_info
+            }
+            
+            docker_models.append(model_instance)
+        
+        # 更新全局模型实例列表
+        global model_instances
+        
+        # 删除现有的Mac部署模型
+        model_instances = [m for m in model_instances if not (m.get('backend') == 'mac' and m.get('id', '').startswith('qwen-model-'))]
+        
+        # 添加新发现的Docker模型
+        model_instances.extend(docker_models)
+        
+        return jsonify({
+            'status': 'success',
+            'data': docker_models
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'获取Docker模型列表失败: {str(e)}'
+        }), 500
+
+# 流式聊天API
+@app.route('/api/chat/stream', methods=['GET'])
+def chat_stream():
+    model_id = request.args.get('model_id')
+    message = request.args.get('message')
+    
+    if not model_id or not message:
+        return jsonify({'status': 'error', 'message': '缺少模型ID或消息内容'}), 400
+    
+    # 查找模型实例
+    model = next((m for m in model_instances if m['id'] == model_id), None)
+    if not model:
+        return jsonify({'status': 'error', 'message': '模型不存在'}), 404
+    
+    # 检查模型状态
+    if model.get('status') != 'running':
+        return jsonify({'status': 'error', 'message': '模型未运行'}), 400
+    
+    # 获取模型API URL
+    port = model.get('port')
+    if not port:
+        return jsonify({'status': 'error', 'message': '模型端口未知'}), 500
+    
+    def generate():
+        import time
+        
+        # 发送SSE头部
+        yield "data: {\"text\": \"正在连接模型...\"}\n\n"
+        
+        try:
+            # 构建请求URL - 使用正确的流式API端点
+            api_url = f"http://localhost:{port}/generate/stream"
+            
+            print(f"发送请求到: {api_url}, 消息: {message}")
+            
+            # 发送请求到模型API，并启用流式传输
+            response = requests.post(
+                api_url,
+                json={
+                    "prompt": message,
+                    "max_length": 100,  # 减少max_length加快生成速度
+                    "temperature": 0.7,
+                    "top_p": 0.9
+                },
+                stream=True,  # 启用流式传输
+                timeout=30  # 超时时间
+            )
+            
+            # 检查响应状态
+            if response.status_code != 200:
+                error_msg = f"模型API返回错误: {response.status_code}"
+                print(error_msg)
+                yield f"data: {{\"error\": \"{error_msg}\"}}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+            
+            # 直接转发流式响应
+            for line in response.iter_lines():
+                if line:
+                    try:
+                        # 解析每行数据
+                        line_text = line.decode('utf-8')
+                        print(f"收到流式响应: {line_text}")
+                        
+                        # 直接转发原始数据给前端
+                        yield f"data: {line_text}\n\n"
+                        
+                        # 检查是否是最后一条消息
+                        try:
+                            json_data = json.loads(line_text)
+                            if json_data.get('done', False) is True:  # 明确检查done是否为True
+                                print("检测到流式响应结束")
+                        except json.JSONDecodeError as e:
+                            print(f"JSON解析错误: {str(e)}, 原始数据: {line_text}")
+                    except Exception as e:
+                        print(f"处理流式响应行时发生错误: {str(e)}")
+            
+            # 确保发送结束标记
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            error_msg = f"连接模型API时发生错误: {str(e)}"
+            print(error_msg)
+            yield f"data: {{\"error\": \"{error_msg}\"}}\n\n"
+            yield "data: [DONE]\n\n"
+    
+    return Response(generate(), mimetype='text/event-stream')
 
 if __name__ == '__main__':
     app.run(debug=True)

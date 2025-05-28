@@ -34,16 +34,50 @@ const ModelChat = () => {
   const fetchModels = async () => {
     setLoading(true);
     try {
-      const response = await fetch('http://127.0.0.1:5000/api/models');
+      // 首先获取Docker中运行的模型实例
+      const timestamp = new Date().getTime();
+      await fetch(`http://127.0.0.1:5000/api/models/docker?_=${timestamp}`);
+      
+      // 然后获取完整的模型列表
+      const response = await fetch(`http://127.0.0.1:5000/api/models?_=${timestamp}`);
       const result = await response.json();
+      
+      console.log('模型列表API响应:', result);
       
       if (result.status === 'success') {
         // 只获取状态为running的模型
         const runningModels = result.data.models.filter(model => model.status === 'running');
-        setModels(runningModels);
+        console.log('运行中的模型:', runningModels);
         
-        if (runningModels.length > 0) {
-          setSelectedModel(runningModels[0].id);
+        // 优先显示mac后端的模型（Docker部署的模型）
+        const macModels = runningModels.filter(model => model.backend === 'mac');
+        console.log('Mac部署的模型:', macModels);
+        
+        // 其他运行中的模型
+        const otherModels = runningModels.filter(model => model.backend !== 'mac');
+        
+        // 合并模型列表，优先显示mac模型
+        const allModels = [...macModels, ...otherModels];
+        
+        // 检查模型是否有必要的字段
+        const validModels = allModels.filter(model => 
+          model.id && model.modelName && model.port && model.server
+        );
+        console.log('有效的模型:', validModels);
+        
+        setModels(validModels);
+        
+        if (validModels.length > 0) {
+          // 默认选择第一个模型（如果是mac模型优先选择）
+          setSelectedModel(validModels[0].id);
+          message.success(`已加载 ${validModels.length} 个可用模型`);
+          
+          // 显示有多少个新部署的Mac模型
+          if (macModels.length > 0) {
+            message.info(`发现 ${macModels.length} 个新部署的Mac模型`);
+          }
+        } else {
+          message.warning('没有可用的运行中模型');
         }
       }
     } catch (error) {
@@ -244,9 +278,20 @@ const ModelChat = () => {
     message.success('对话已清空');
   };
   
+  // 添加自动滚动控制状态
+  const [autoScroll, setAutoScroll] = useState(false);
+
   // 滚动到底部
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (autoScroll) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+  
+  // 切换自动滚动状态
+  const toggleAutoScroll = () => {
+    setAutoScroll(!autoScroll);
+    message.info(`自动滚动已${!autoScroll ? '开启' : '关闭'}`);
   };
   
   useEffect(() => {
@@ -261,8 +306,11 @@ const ModelChat = () => {
   }, []);
   
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, streamingMessage]);
+    // 只在autoScroll为true时才自动滚动
+    if (autoScroll) {
+      scrollToBottom();
+    }
+  }, [messages, streamingMessage, autoScroll]);
   
   return (
     <Content style={{ padding: '20px' }}>
@@ -302,6 +350,14 @@ const ModelChat = () => {
                 onClick={fetchModels}
                 loading={loading}
               />
+            </Tooltip>
+            <Tooltip title={`您当前已${autoScroll ? '开启' : '关闭'}自动滚动`}>
+              <Button 
+                type={autoScroll ? 'primary' : 'default'}
+                onClick={toggleAutoScroll}
+              >
+                {autoScroll ? '自动滚动已开启' : '自动滚动已关闭'}
+              </Button>
             </Tooltip>
           </Space>
         }
